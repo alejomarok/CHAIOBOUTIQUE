@@ -6,28 +6,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="estilos.css">
     <script src="https://kit.fontawesome.com/dbaa3bc6c3.js" crossorigin="anonymous"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
     <title>Document</title>
 </head>
 <body>
-    <header class="header"> 
+    <header class="header" style="z-index: 2 ; "> 
         <nav class="nav">
-            <a href="index.html" class="logo"><img class="imglogo" src="IMG/logo.png" alt="logo" width="450px" height="90px"></a>
+            <a href="index.html" class="logo"><img class="imglogo" src="IMG/logo.png" alt="logo" width="300px" height="60px"></a>
             <button class="toggle">
                 <i class="fas fa-bars"></i>
             </button>
             <ul class="nav-menu">
                <li class="nav-menu-item"><a href="index.html" class="nav-menu-link nav-link">INICIO</a></li>
-               <li class="nav-menu-item"><a href="productos.html" class="nav-menu-link nav-link">PRODUCTOS</a></li>
+               <li class="nav-menu-item"><a href="productos.html" class="nav-menu-link nav-link">PRODUCTOS</a>
+                <ul class="menudesplegable" style="text-decoration: none;">
+                  <li><a class="submenu" href="PRODUCTOS/abrigos.html">ABRIGOS</a></li>
+                  <li><a class="submenu" href="PRODUCTOS/accesorios.html">ACCESORIOS</a></li>
+                  <li><a class="submenu" href="PRODUCTOS/calzado.html">CALZADO</a></li>
+                  <li><a class="submenu" href="PRODUCTOS/carteras.html">CARTERAS</a></li>
+                  <li><a class="submenu" href="PRODUCTOS/pantalones.html">PANTALONES</a></li>
+                  <li><a class="submenu" href="PRODUCTOS/remeras.html">REMERAS</a></li>
+                </ul>
+              </li>
                <li class="nav-menu-item"><a href="contacto.html" class="nav-menu-link nav-link">CONTACTO</a></li>
             </ul>
         </nav>  
     </header> 
-
-    <a href="../PROYECTO/PRODUCTOS/calzado.html">CALZADO</a>
-    <a href="../PROYECTO/PRODUCTOS/abrigos.html">ABRIGOS</a>
-    <a href="../PROYECTO/PRODUCTOS/accesorios.html">ACCESORIOS</a>
-    <a href="../PROYECTO/PRODUCTOS/carteras.html">CARTERAS</a>
-    <a href="../PROYECTO/PRODUCTOS/pantalones.html">PANTALONES</a>
-    <a href="../PROYECTO/PRODUCTOS/remeras.html">REMERAS</a>
+<div class="botoneraproductos" class="img-fluid">
+    <a href="PRODUCTOS/calzado.html"><img src="IMG/CALZADOLOGO.jpeg" class="img-fluid" alt="CALZADO"></a>
+    <a href="PRODUCTOS/abrigos.html"> <img src="IMG/ABRIGOSLOGO.jpeg" class="img-fluid" alt="ABRIGOS"> </a>
+    <a href="PRODUCTOS/accesorios.html"> <img src="IMG/ACCESORIOSLOGO.jpeg" class="img-fluid" alt="ACCESORIOS"> </a>
+</div>
+<div class="botoneraproductos2" class="img-fluid">    
+    <a href="PRODUCTOS/carteras.html"> <img src="IMG/CARTERASLOGO.jpeg" class="img-fluid" alt="CARTERAS"> </a>
+    <a href="PRODUCTOS/pantalones.html"> <img src="IMG/PANTALONESLOGO.jpeg" class="img-fluid" alt=" PANTALONES"></a>
+    <a href="PRODUCTOS/remeras.html"> <img src="IMG/REMERASLOGO.jpeg" class="img-fluid" alt=" REMERAS"></a>
+</div>    
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-U1DAWAznBHeqEIlVSCgzq+c9gqGAJn5c/t99JyeKa9xxaYpSvHU5awsuZVVFIhvj" crossorigin="anonymous"></script>
 </body>
 </html>
