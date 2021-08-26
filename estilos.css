@@ -4,7 +4,7 @@
 
 body {
     padding: 90px 20px 0 ;
-    background-image: linear-gradient(to left, rgb(255, 212, 160), white );
+    background-image: linear-gradient(to left, RGB(155, 235, 203), white );
 }
 
 .header { 
@@ -193,10 +193,17 @@ color: inherit !important;}
 
 .botoneraproductos {
     display: flex;
-    margin: 5px;
+    margin: 15px 15px 15px 15px;
 }
 
 .botoneraproductos2 {
-    display: flex;
-    margin: 5px;
+    display: flex; 
+   
+    margin: 15px 15px 15px 15px;
+}
+
+
+.footerInicio {
+    background-color:rgb(255, 212, 160);
+    width: 100% !important;
 }
