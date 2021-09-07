@@ -9,18 +9,18 @@
     <title>CHAIO BOUTIQUE</title>
     <script defer src="index.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
-
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
 </head>
 <body>
     <header class="header" style="z-index: 2 ; "> 
         <nav class="nav">
-            <a href="index.html" class="logo"><img class="imglogo" src="IMG/logo.png" alt="logo" width="300px" height="60px"></a>
-            <button class="toggle">
+            <a href="index.html" class="nav__logo"><img data-aos="fade-right" class="imglogo" src="IMG/logo.png" alt="logo" width="300px" height="60px"></a>
+            <button class="nav__toggle nav__toggle--color">
                 <i class="fas fa-bars"></i>
             </button>
-            <ul class="nav-menu">
-               <li class="nav-menu-item"><a href="index.html" class="nav-menu-link nav-link">INICIO</a></li>
-               <li class="nav-menu-item"><a href="productos.html" class="nav-menu-link nav-link">PRODUCTOS</a>
+            <ul class="nav__menu">
+               <li class="nav__menu-item"><a href="index.html" class="nav__menu-link nav__link">INICIO</a></li>
+               <li class="nav__menu-item"><a href="productos.html" class="nav__menu-link nav__link">PRODUCTOS</a>
                 <ul class="menudesplegable" style="text-decoration: none;">
                   <li><a class="submenu" href="PRODUCTOS/abrigos.html">ABRIGOS</a></li>
                   <li><a class="submenu" href="PRODUCTOS/accesorios.html">ACCESORIOS</a></li>
@@ -30,12 +30,12 @@
                   <li><a class="submenu" href="PRODUCTOS/remeras.html">REMERAS</a></li>
                 </ul>
               </li>
-               <li class="nav-menu-item"><a href="contacto.html" class="nav-menu-link nav-link">CONTACTO</a></li>
+               <li class="nav__menu-item"><a href="contacto.html" class="nav__menu-link nav__link">CONTACTO</a></li>
             </ul>
         </nav>  
     </header> 
     <h1 class="display-6">INICIO CHAIO BOUTIQUE</h1>
-    <div id="carouselExampleSlidesOnly" class="carousel slide" data-bs-ride="carousel" style="z-index: 1;">
+    <div data-aos="zoom-in" id="carouselExampleSlidesOnly" class="carousel slide" data-bs-ride="carousel" style="z-index: 1;">
         <div class="carousel-inner">
           <div class="carousel-item active">
             <img src="IMG/carouselimg1.jpg" class="d-block w-100" alt="imagencarousel1">
@@ -48,12 +48,24 @@
           </div>
         </div>
     </div>
+    <nav  data-aos="flip-left"
+    data-aos-easing="ease-out-cubic"
+    data-aos-duration="2000" class="navtexto buttom-brown ancho-40 altura-30 container">
+      <div>
+        <p class="navtexto__texto navtexto__texto--color ancho-20 altura-30 navtexto__texto--size">  Chaio Boutique es el lugar donde encontraras tu outfit ideal, en cualquier estación del año, con excelentes precios, modelos exclusivos y mucho más...
+        </p>
+      </div>
+    </nav>
 
-    <h2 class="display-6">NOVEDADES...</h2>
-
-    <nav class="productosinicio">  
+    <h2 data-aos="fade-right"
+    data-aos-offset="300"
+    data-aos-easing="ease-in-sine" class="display-6">NOVEDADES...</h2>
+<nav data-aos="fade-left"
+data-aos-anchor="#example-anchor"
+data-aos-offset="500"
+data-aos-duration="500" class="productosinicio">   
       <div class="card" style="width: 18rem;">
-        <img src="IMG/CALZADO/CALZADO1.jpg" class="card-img-top container" alt="...">
+        <img src="IMG/CALZADO/CALZADO1.jpg" class=" card-img-top container" alt="...">
         <div class="card-body">
           <p class="card-text">Some quick example text to build on the card title and make up the bulk of the card's content.</p>
         </div>
@@ -76,19 +88,24 @@
           <p class="card-text">Some quick example text to build on the card title and make up the bulk of the card's content.</p>
         </div>
       </div>   
-    </nav>
+</nav>
 
-   <footer class="footerInicio">
-     
-    <h3 class="subtituloredes">REDES SOCIALES</h3>
-    <nav class="iconosredes">
+   <footer data-aos="zoom-in-up" class="ancho-100 footer"> 
+    <nav class="nav2">
+      <div class="nav2__subtitulo">
+          <h3 class="nav2__subtitulo nav2__subtitulo--size">REDES SOCIALES</h3>
+      </div>
+    </nav>
+    <nav class="nav3">   
+      <div class="nav3__element">
         <a href="https://es-la.facebook.com/pages/category/Clothing--Brand-/CHAIO-Boutique-418206108386956/"><i class="fab fa-facebook-square "></i></a>
         <a href="https://www.instagram.com/chaioboutique/"><i class="fab fa-instagram" ></i></a>
+      </div>  
     </nav>
-
    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-U1DAWAznBHeqEIlVSCgzq+c9gqGAJn5c/t99JyeKa9xxaYpSvHU5awsuZVVFIhvj" crossorigin="anonymous"></script>
-    
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>AOS.init();</script>
 </body>
 </html>

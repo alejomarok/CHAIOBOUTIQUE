@@ -1,0 +1,16 @@
+@for $i from 1 through 100 {
+    .ancho-#{$i}{
+        width: $i *1%;
+    } 
+} 
+
+@for $i from 1 through 100 {
+    .altura-#{$i}{
+        height: $i *1%;
+    } 
+} 
+
+$colors: brown; 
+@each $color in $colors {
+    .buttom-#{$color} {background: $color ;}
+}

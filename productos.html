@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="estilos.css">
+    <link rel="stylesheet" href="css/style.css">
     <script src="https://kit.fontawesome.com/dbaa3bc6c3.js" crossorigin="anonymous"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
     <title>Document</title>
@@ -13,13 +13,13 @@
 <body>
     <header class="header" style="z-index: 2 ; "> 
         <nav class="nav">
-            <a href="index.html" class="logo"><img class="imglogo" src="IMG/logo.png" alt="logo" width="300px" height="60px"></a>
-            <button class="toggle">
+            <a href="index.html" class="nav__logo"><img class="imglogo" src="IMG/logo.png" alt="logo" width="300px" height="60px"></a>
+            <button class="nav__toggle nav__toggle--color">
                 <i class="fas fa-bars"></i>
             </button>
-            <ul class="nav-menu">
-               <li class="nav-menu-item"><a href="index.html" class="nav-menu-link nav-link">INICIO</a></li>
-               <li class="nav-menu-item"><a href="productos.html" class="nav-menu-link nav-link">PRODUCTOS</a>
+            <ul class="nav__menu">
+               <li class="nav__menu-item"><a href="index.html" class="nav__menu-link nav__link">INICIO</a></li>
+               <li class="nav__menu-item"><a href="productos.html" class="nav__menu-link nav__link">PRODUCTOS</a>
                 <ul class="menudesplegable" style="text-decoration: none;">
                   <li><a class="submenu" href="PRODUCTOS/abrigos.html">ABRIGOS</a></li>
                   <li><a class="submenu" href="PRODUCTOS/accesorios.html">ACCESORIOS</a></li>
@@ -29,20 +29,36 @@
                   <li><a class="submenu" href="PRODUCTOS/remeras.html">REMERAS</a></li>
                 </ul>
               </li>
-               <li class="nav-menu-item"><a href="contacto.html" class="nav-menu-link nav-link">CONTACTO</a></li>
+               <li class="nav__menu-item"><a href="contacto.html" class="nav__menu-link nav__link">CONTACTO</a></li>
             </ul>
         </nav>  
     </header> 
-<div class="botoneraproductos" data-aos="fade-right" class="img-fluid">
+<nav class="navproductos">     
+   <div class="navproductos__botoneraproductos img-fluid" data-aos="fade-right">
     <a href="PRODUCTOS/calzado.html"><img src="IMG/CALZADOLOGO.jpeg" class="img-fluid " alt="CALZADO"  width="600px" height="450px"></a>
     <a href="PRODUCTOS/abrigos.html"> <img src="IMG/ABRIGOSLOGO.jpeg" class="img-fluid" alt="ABRIGOS" width="600px" height="450px"> </a>
     <a href="PRODUCTOS/accesorios.html"> <img src="IMG/ACCESORIOSLOGO.jpeg" class="img-fluid" alt="ACCESORIOS" width="600px" height="450px"> </a>
-</div>
-<div class="botoneraproductos2" data-aos="fade-left" class="img-fluid">    
+   </div>
+   <div class="navproductos__botoneraproductos2" data-aos="fade-left" class="img-fluid">    
     <a href="PRODUCTOS/carteras.html"> <img src="IMG/CARTERASLOGO.jpeg" class="img-fluid" alt="CARTERAS" width="600px" height="450px"> </a>
     <a href="PRODUCTOS/pantalones.html"> <img src="IMG/PANTALONESLOGO.jpeg" class="img-fluid" alt=" PANTALONES" width="600px" height="450px"></a>
     <a href="PRODUCTOS/remeras.html"> <img src="IMG/REMERASLOGO.jpeg" class="img-fluid" alt=" REMERAS" width="600px" height="450px"></a>
-</div>    
+   </div> 
+</nav>   
+
+<footer data-aos="zoom-in-up" class="footer"> 
+    <nav class="nav2">
+      <div class="nav2__subtitulo">
+          <h3 class="nav2__subtitulo nav2__subtitulo--size">REDES SOCIALES</h3>
+      </div>
+    </nav>
+    <nav class="nav3">   
+      <div class="nav3__element">
+        <a href="https://es-la.facebook.com/pages/category/Clothing--Brand-/CHAIO-Boutique-418206108386956/"><i class="fab fa-facebook-square "></i></a>
+        <a href="https://www.instagram.com/chaioboutique/"><i class="fab fa-instagram" ></i></a>
+      </div>  
+    </nav>
+</footer>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-U1DAWAznBHeqEIlVSCgzq+c9gqGAJn5c/t99JyeKa9xxaYpSvHU5awsuZVVFIhvj" crossorigin="anonymous"></script>
 
 <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
