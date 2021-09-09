@@ -8,13 +8,13 @@
 
 
 body {
-    padding: 90px 20px 0 ;
+    padding:60px 0 0 0 ;
     background-image: linear-gradient(to left, RGB(155, 235, 203), white );
 }
 
 .header { 
-    background-color: $crema !important; 
-    height: 60px !important;
+    background-color: black !important; 
+    height: 58px !important;
     position: fixed !important;
     width: 100% !important;
     top: 0 !important;
@@ -34,6 +34,7 @@ body {
 
 .nav__logo {
     padding: 0 40px;
+    line-height: 50px;
     
  }
 
@@ -48,22 +49,17 @@ body {
 .nav__menu-item {
     font-size: 16px !important;
     margin: 0 10px !important;
-    line-height: 50px !important;
+    line-height: 55px !important;
     text-transform: uppercase !important;
     width: max-content !important;
 }
 
-.nav__menu-link {
-    padding: 6px 2px !important;
-    border-radius: 1px !important;
-    height: 60px;
- 
-}
 
 
 .nav__menu-link:hover {
-    background-color: rgb(255, 195, 121) !important;
-    transition: 1s !important; 
+    background-color: rgb(136, 136, 136) !important;
+    transition: 0.6s !important;
+    
 }
 
 .menudesplegable { 
@@ -73,18 +69,20 @@ body {
     font-size: 16px;
     color: white;
     text-align: start;
-    padding: 0;
+    padding: 10px 15px;
 }  
 
 nav li a:hover {
     background-color: rgb(255, 195, 121);
-    transition: 1s !important;    
+    transition: o.6s !important;   
+    padding: 20px 8px   !important; 
+    
 }
 
 nav li ul {
     display: none;
     position: absolute;
-    min-width: 120px;
+    min-width: 100px 50px;
 }
 
 
@@ -105,7 +103,7 @@ nav li:hover >ul {
     border: none ;
     font-size: 30px ;
     padding: 0 20px ;
-    line-height: 60px ;
+    line-height: 50px ;
 
     display: none ; 
     cursor: pointer ;
@@ -126,7 +124,7 @@ nav li:hover >ul {
     
     .nav__logo{
         padding: 0 20px;
-        line-height: 60px;
+        line-height: 50px;
      }
     
     .nav__menu {
@@ -165,8 +163,8 @@ nav li:hover >ul {
         left: 0;
     }
     .imglogo {
-         width: 300px;
-         height: 60px}
+         width: 220px;
+         height: 50px}
 
     .menudesplegable {
         background-color: rgb(231, 168, 90) ;
@@ -180,6 +178,7 @@ nav li:hover >ul {
     margin: 20px;
     padding: 20px;
     margin-left: 500px;
+    background-color: #ebf160;;
 }
 
 .navtexto__texto {
@@ -216,14 +215,14 @@ color: inherit !important;}
 
 
 .footer {
-    background-color:$crema;
+    background-color:#e5b6d3;
     align-items: center;
 }
 
 
 .nav2__subtitulo--size{display: flex;
     justify-content: center;
-    font-size: 50px;
+    font-size: 40px;
 text-align: center;}
 
 

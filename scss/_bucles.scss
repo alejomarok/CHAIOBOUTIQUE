@@ -10,7 +10,7 @@
     } 
 } 
 
-$colors: brown; 
+$colors: #ebf160;; 
 @each $color in $colors {
     .buttom-#{$color} {background: $color ;}
 }
