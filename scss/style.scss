@@ -21,6 +21,9 @@ body {
     left: 0 !important;  
     border-bottom: oldlace !important; }
 
+.tituloinicio {
+    text-align: center;
+}
 .nav {
     display: flex !important;
     justify-content: space-between !important;
@@ -113,6 +116,12 @@ nav li:hover >ul {
     color: white;
 }
 
+.lineaseparadora {
+    display: flex;
+    justify-content: center;
+    color: rgb(61, 61, 61);
+}
+
 @media (max-width: 768px) {
     body {
         padding-top: 70px;
@@ -170,8 +179,30 @@ nav li:hover >ul {
         background-color: rgb(231, 168, 90) ;
     } 
 
-        } 
+    .productosinicio { 
+        flex-direction: column;
+    
+    }
+    .navproductos__botoneraproductos {
+        flex-direction: column;
+        margin: 0px 0px 0px 0px;
+    }
+    
+    .navproductos__botoneraproductos2 { 
+        flex-direction: column;
+        margin: 0px 0px 0px 0px;
 
+        } 
+    .navproductos{
+        margin: 0px;
+    }
+    .catalogo__subproductos1 {
+        flex-direction: column;
+    }
+    .catalogo__subproductos2 {
+        flex-direction: column;
+    }
+}
 
 .navtexto {
     
@@ -192,12 +223,30 @@ font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif;
 
 .productosinicio { 
     display: flex;
-    margin: 15px;
-    padding: 10px;
     justify-content: space-evenly;
+    justify-content: center;
 
 }
-  
+
+.productosinicio1 {
+    
+    display: flex;
+    
+}
+
+.productosinicio2 { 
+    
+    display: flex;
+    
+}
+@media (max-width: 400px) {
+    .productosinicio1 {
+       flex-direction: column;
+    }
+    
+    .productosinicio2 {
+        flex-direction: column;}
+}
 
 a { 
 color: inherit !important;}
@@ -206,6 +255,7 @@ color: inherit !important;}
 .navproductos__botoneraproductos {
     display: flex;
     margin: 15px 15px 15px 15px;
+    
 }
 
 .navproductos__botoneraproductos2 { 
@@ -250,3 +300,13 @@ text-align: center;}
 .form__textoh3 { 
     font-size:$tamañotext; 
 } 
+
+
+.catalogo__subproductos1 {
+    display: flex;
+    justify-content: space-around;
+}
+.catalogo__subproductos2 {
+    display: flex;
+    justify-content: space-around;
+}
