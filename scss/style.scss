@@ -181,6 +181,8 @@ nav li:hover >ul {
 
     .productosinicio { 
         flex-direction: column;
+        justify-content: space-evenly;
+        align-items: center;
     
     }
     .navproductos__botoneraproductos {

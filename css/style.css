@@ -734,7 +734,9 @@ nav li:hover > ul {
   .menudesplegable {
     background-color: #e7a85a; }
   .productosinicio {
-    flex-direction: column; }
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: center; }
   .navproductos__botoneraproductos {
     flex-direction: column;
     margin: 0px 0px 0px 0px; }
