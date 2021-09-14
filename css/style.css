@@ -744,9 +744,13 @@ nav li:hover > ul {
   .navproductos {
     margin: 0px; }
   .catalogo__subproductos1 {
-    flex-direction: column; }
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: center; }
   .catalogo__subproductos2 {
-    flex-direction: column; } }
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: center; } }
 
 .navtexto {
   margin: 20px;
@@ -791,6 +795,9 @@ a {
   display: flex;
   margin: 15px 15px 15px 15px; }
 
+.imagenesbotonera {
+  margin: 10px; }
+
 .footer {
   background-color: #e5b6d3;
   align-items: center; }
@@ -821,8 +828,33 @@ a {
 
 .catalogo__subproductos1 {
   display: flex;
-  justify-content: space-around; }
+  justify-content: space-evenly; }
+
+.p-tarjeta {
+  font-size: 30px; }
 
 .catalogo__subproductos2 {
   display: flex;
-  justify-content: space-around; }
+  justify-content: space-evenly; }
+
+.paginadelproducto {
+  display: flex;
+  justify-content: center;
+  align-items: center; }
+
+.precio {
+  font-size: 60px;
+  font-weight: 1500;
+  text-align: end; }
+
+.mensajedevolucion {
+  size: 10px;
+  color: #929292; }
+
+.botoncomprar {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end; }
+
+.textotarjetacatalogo {
+  font-weight: 1500; }
