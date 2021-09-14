@@ -867,3 +867,11 @@ a {
 .imagenaroma {
   width: 100%;
   height: 320px; }
+
+.iconocontacto {
+  margin: 5px;
+  height: 65px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center; }
