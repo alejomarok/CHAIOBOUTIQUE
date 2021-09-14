@@ -750,7 +750,10 @@ nav li:hover > ul {
   .catalogo__subproductos2 {
     flex-direction: column;
     justify-content: space-evenly;
-    align-items: center; } }
+    align-items: center; }
+  .imagenaroma {
+    width: 100%;
+    height: 200px; } }
 
 .navtexto {
   margin: 20px;
@@ -858,3 +861,7 @@ a {
 
 .textotarjetacatalogo {
   font-weight: 1500; }
+
+.imagenaroma {
+  width: 100%;
+  height: 320px; }
