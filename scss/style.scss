@@ -60,7 +60,7 @@ body {
 
 
 .nav__menu-link:hover {
-    background-color: rgb(136, 136, 136) !important;
+    background-color: rgb(255, 195, 121) !important;
     transition: 0.6s !important;
     
 }
@@ -251,13 +251,16 @@ font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif;
     display: flex;
     
 }
-@media (max-width: 400px) {
+@media (max-width: 1270px) {
     .productosinicio1 {
        flex-direction: column;
+       justify-content: space-around;
     }
     
     .productosinicio2 {
-        flex-direction: column;}
+        flex-direction: column;
+        justify-content: space-around;    
+    }
 }
 
 a { 

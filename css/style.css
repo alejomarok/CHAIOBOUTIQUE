@@ -649,7 +649,7 @@ body {
   width: max-content !important; }
 
 .nav__menu-link:hover {
-  background-color: #888888 !important;
+  background-color: #ffc379 !important;
   transition: 0.6s !important; }
 
 .menudesplegable {
@@ -783,11 +783,13 @@ nav li:hover > ul {
 .productosinicio2 {
   display: flex; }
 
-@media (max-width: 400px) {
+@media (max-width: 1270px) {
   .productosinicio1 {
-    flex-direction: column; }
+    flex-direction: column;
+    justify-content: space-around; }
   .productosinicio2 {
-    flex-direction: column; } }
+    flex-direction: column;
+    justify-content: space-around; } }
 
 a {
   color: inherit !important; }
