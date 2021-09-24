@@ -296,6 +296,7 @@ text-align: center;}
 
 
 .nav3__element{
+    padding: 20px;
     display: flex;
     color: rgb(0, 0, 0) !important;
     font-size: 50px ;    
@@ -373,4 +374,13 @@ text-align: center;}
     flex-direction: column;
     justify-content: center;
     align-items: center;
+}
+
+
+h6{
+    padding-bottom: 20px;
+}
+
+.nav2__subtitulo {
+    padding-top: 15px;
 }
