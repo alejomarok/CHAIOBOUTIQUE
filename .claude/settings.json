@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx prettier *)",
+      "Bash(npx next *)",
+      "Bash(ls -la \"/c/Users/alejo/Desktop/ALEJO\" 2>&1)",
+      "Read(//c/Users/alejo/Desktop/ALEJO/**)"
+    ]
+  }
+}

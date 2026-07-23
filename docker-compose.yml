@@ -1,0 +1,30 @@
+name: chaioboutique-dev
+
+# Local dev-only services. The primary DATABASE_URL/DIRECT_URL still point at
+# Supabase (see DATABASE.md). These two services exist only for:
+#   - postgres-test: TEST_DATABASE_URL, so integration tests and `db:test:migrate`
+#     never touch the Supabase-hosted dev/prod database.
+#   - mailpit: local SMTP catcher for the password-reset email flow, since no
+#     production email provider is wired up yet (see INTEGRATIONS.md).
+services:
+  postgres-test:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chaioboutique_test
+      POSTGRES_PASSWORD: chaioboutique_test
+      POSTGRES_DB: chaioboutique_test
+    ports:
+      - "55432:5432"
+    volumes:
+      - chaioboutique-test-db:/var/lib/postgresql/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+
+volumes:
+  chaioboutique-test-db:

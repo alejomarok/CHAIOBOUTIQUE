@@ -1,0 +1,205 @@
+// CHAIOBOUTIQUE — foundation schema.
+//
+// Scope (see docs/DATABASE.md for the full rationale): authentication
+// (Better Auth's own tables), data-driven RBAC, store configuration, and the
+// audit log foundation. Catalog/inventory/purchasing/sales/payments/shipping/
+// invoicing entities are explicitly out of scope for this phase.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Better Auth — model shape follows Better Auth's documented Prisma adapter
+// schema exactly (field names/casing matter to the adapter). Application-only
+// additions are grouped below the Better Auth fields and called out.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // --- Application-owned fields (not managed by Better Auth) ---
+  // Enforcement point lives in modules/auth/getCurrentUser: a disabled or
+  // soft-deleted user is treated as unauthenticated even with a valid
+  // session row. See ARCHITECTURE.md.
+  isActive   Boolean   @default(true)
+  disabledAt DateTime?
+  deletedAt  DateTime?
+
+  sessions  Session[]
+  accounts  Account[]
+  userRoles UserRole[]
+  auditLogs AuditLog[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// Data-driven RBAC. Roles are rows, not a Prisma enum, so new roles can be
+// created from the admin UI without a migration. Permission *keys* are still
+// defined in code (src/modules/permissions/catalog.ts) since they represent
+// capabilities the application actually implements — the Permission table is
+// upserted from that catalog by the seed. See PERMISSIONS.md.
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  description String?
+  // Protects the 6 seeded roles from deletion at the service layer.
+  // Application-level enforcement only — see ARCHITECTURE.md risks section.
+  isSystem    Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("role")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@map("permission")
+}
+
+model UserRole {
+  id         String   @id @default(cuid())
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+  // Denormalized user id of the assigner, not a relation: this is metadata
+  // about the assignment event, not a join we query from — keeping it a
+  // plain field avoids a second, ambiguous relation from Role/User.
+  assignedBy String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_role")
+}
+
+model RolePermission {
+  id           String @id @default(cuid())
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permission")
+}
+
+// ---------------------------------------------------------------------------
+// Store configuration — single row, enforced by a fixed literal id default
+// (a second insert collides on the primary key instead of silently creating
+// a second "store").
+// ---------------------------------------------------------------------------
+
+model StoreConfiguration {
+  id        String   @id @default("main")
+  name      String
+  currency  String
+  locale    String
+  timezone  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("store_configuration")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log — append-only by application convention (see modules/audit).
+// Sensitive values (passwords, tokens, session cookies) must never reach a
+// call to recordAuditLog; see SECURITY.md.
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  userId        String?
+  action        String
+  entityType    String
+  entityId      String?
+  previousValue Json?
+  newValue      Json?
+  ipAddress     String?
+  userAgent     String?
+  correlationId String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_log")
+}
