@@ -41,6 +41,50 @@ export function validateUpload(input: ValidateUploadInput): void {
   }
 }
 
+// File-signature ("magic bytes") check — validates the actual bytes, not
+// just the declared Content-Type header, which a caller could lie about.
+// Deliberately dependency-free: reads a handful of leading bytes rather than
+// decoding the whole image (no sharp/native dependency needed for this).
+const MIME_TYPE_BY_SIGNATURE: Array<{
+  contentType: string;
+  matches: (bytes: Uint8Array) => boolean;
+}> = [
+  { contentType: "image/jpeg", matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  {
+    contentType: "image/png",
+    matches: (b) =>
+      b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d,
+  },
+  {
+    contentType: "image/webp",
+    matches: (b) =>
+      b[0] === 0x52 &&
+      b[1] === 0x49 &&
+      b[2] === 0x46 &&
+      b[3] === 0x46 &&
+      b[8] === 0x57 &&
+      b[9] === 0x45 &&
+      b[10] === 0x42 &&
+      b[11] === 0x50,
+  },
+];
+
+export function detectImageContentType(bytes: Uint8Array): string | null {
+  return MIME_TYPE_BY_SIGNATURE.find((entry) => entry.matches(bytes))?.contentType ?? null;
+}
+
+export function validateImageFileSignature(bytes: Uint8Array, declaredContentType: string): void {
+  const detected = detectImageContentType(bytes);
+  if (detected === null) {
+    throw new StorageValidationError("El archivo no parece ser una imagen válida.");
+  }
+  if (detected !== declaredContentType) {
+    throw new StorageValidationError(
+      `El contenido del archivo no coincide con el tipo declarado ("${declaredContentType}").`,
+    );
+  }
+}
+
 // Prevents path traversal / writing into another entity's folder: the
 // resolved path always stays within entityType/entityId/ and uses a
 // generated filename, never whatever the caller/browser supplied.

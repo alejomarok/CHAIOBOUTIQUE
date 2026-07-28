@@ -68,6 +68,18 @@
 | `settings.view`        | View store settings                        |
 | `settings.manage`      | Edit store settings                        |
 | `audit.view`           | View the audit log                         |
+| `products.archive`     | Archive products                           |
+| `categories.view`      | View categories                            |
+| `categories.manage`    | Create/edit/archive categories             |
+| `brands.view`          | View brands                                |
+| `brands.manage`        | Create/edit brands                         |
+| `attributes.view`      | View sizes and colors                      |
+| `attributes.manage`    | Create/edit sizes and colors               |
+| `warehouses.view`      | View warehouses                            |
+| `warehouses.manage`    | Create/edit warehouses, set the default    |
+| `product_images.manage`| Upload/delete/reorder product images       |
+| `product_imports.view` | View migration import batches and history  |
+| `product_imports.execute` | Run a migration import (dry-run or real) |
 
 ## Role → permission matrix
 
@@ -121,18 +133,35 @@ it is the only role with unrestricted access by design.
 | settings.view        |    ✓    |           |           |     ✓      |
 | settings.manage      |         |           |           |            |
 | audit.view           |         |           |           |            |
+| products.archive     |    ✓    |           |           |            |
+| categories.view      |    ✓    |           |           |            |
+| categories.manage    |    ✓    |           |           |            |
+| brands.view          |    ✓    |           |           |            |
+| brands.manage        |    ✓    |           |           |            |
+| attributes.view      |    ✓    |           |           |            |
+| attributes.manage    |    ✓    |           |           |            |
+| warehouses.view      |    ✓    |           |     ✓     |            |
+| warehouses.manage    |    ✓    |           |           |            |
+| product_images.manage|    ✓    |           |           |            |
+| product_imports.view |    ✓    |           |           |            |
+| product_imports.execute |      |           |           |            |
 
-`users.manage`, `roles.manage`, `settings.manage`, and `audit.view` are **ADMIN-only** by
-design — see the exclusions below.
+`users.manage`, `roles.manage`, `settings.manage`, `audit.view`, and `product_imports.execute`
+are **ADMIN-only** by design — see the exclusions below.
 
 ## Rationale per role
 
 ### MANAGER (Encargada)
 
 Runs daily operations: catalog, pricing, inventory, suppliers, purchasing, customers, sales,
-cash register, expenses, orders, shipments, invoices, and both report types. **Excluded**:
-`users.manage`, `roles.manage`, `settings.manage`, `audit.view` — the spec's "should not
-automatically have access to highly sensitive system settings or credentials."
+cash register, expenses, orders, shipments, invoices, and both report types. Also owns
+day-to-day catalog curation (`categories.*`, `brands.*`, `attributes.*`, `warehouses.*`,
+`product_images.manage`, `products.archive`) and can view import history
+(`product_imports.view`). **Excluded**: `users.manage`, `roles.manage`, `settings.manage`,
+`audit.view` — the spec's "should not automatically have access to highly sensitive system
+settings or credentials" — and `product_imports.execute`: a bulk import can rewrite pricing and
+stock across many rows in one action, a different risk class than the rest of MANAGER's
+day-to-day operations, so it stays ADMIN-only as a reversible least-privilege default.
 
 ### SALES_REPRESENTATIVE (Vendedora)
 
@@ -145,9 +174,12 @@ destructive than an authorized refund/exchange, which they can do via `sales.ref
 
 ### WAREHOUSE (Depósito)
 
-Reception, stock adjustments/transfers, movement history, order and shipment preparation.
-**Excluded**: anything financial (`reports.view_profit`, `products.view_cost`,
-`cash_register.*`, `expenses.*`, `sales.*`, `customers.*`, `invoices.*`).
+Reception, stock adjustments/transfers, movement history, order and shipment preparation. Has
+`warehouses.view` (needs to pick a warehouse when adjusting/transferring stock) but not
+`warehouses.manage` (creating/editing warehouse entities) or `categories.*`/`attributes.*`
+(catalog curation, not operational stock data). **Excluded**: anything financial
+(`reports.view_profit`, `products.view_cost`, `cash_register.*`, `expenses.*`, `sales.*`,
+`customers.*`, `invoices.*`).
 
 ### ACCOUNTANT (Contadora)
 

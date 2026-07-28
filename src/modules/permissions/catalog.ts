@@ -50,6 +50,21 @@ export const PERMISSIONS = [
   "settings.view",
   "settings.manage",
   "audit.view",
+
+  // Phase 2 — catalog & inventory. products.*/stock.* keys above are Phase 1
+  // and reused as-is; these are the new keys Phase 2 needs.
+  "products.archive",
+  "categories.view",
+  "categories.manage",
+  "brands.view",
+  "brands.manage",
+  "attributes.view",
+  "attributes.manage",
+  "warehouses.view",
+  "warehouses.manage",
+  "product_images.manage",
+  "product_imports.view",
+  "product_imports.execute",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -105,4 +120,17 @@ export const PERMISSION_LABELS_ES: Record<Permission, string> = {
   "settings.view": "Ver configuración",
   "settings.manage": "Gestionar configuración",
   "audit.view": "Ver auditoría",
+
+  "products.archive": "Archivar productos",
+  "categories.view": "Ver categorías",
+  "categories.manage": "Gestionar categorías",
+  "brands.view": "Ver marcas",
+  "brands.manage": "Gestionar marcas",
+  "attributes.view": "Ver talles y colores",
+  "attributes.manage": "Gestionar talles y colores",
+  "warehouses.view": "Ver depósitos",
+  "warehouses.manage": "Gestionar depósitos",
+  "product_images.manage": "Gestionar imágenes de productos",
+  "product_imports.view": "Ver importaciones",
+  "product_imports.execute": "Ejecutar importaciones",
 };

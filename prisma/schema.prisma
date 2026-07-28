@@ -21,13 +21,13 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model User {
-  id            String    @id
+  id            String   @id
   name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  email         String   @unique
+  emailVerified Boolean  @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   // --- Application-owned fields (not managed by Better Auth) ---
   // Enforcement point lives in modules/auth/getCurrentUser: a disabled or
@@ -41,6 +41,14 @@ model User {
   accounts  Account[]
   userRoles UserRole[]
   auditLogs AuditLog[]
+
+  // Phase 2 — catalog/inventory back-relations. Added incrementally as each
+  // checkpoint introduces the referencing model (see DATABASE.md).
+  createdProducts      Product[]            @relation("ProductCreatedBy")
+  updatedProducts      Product[]            @relation("ProductUpdatedBy")
+  createdProductImages ProductImage[]       @relation("ProductImageCreatedBy")
+  inventoryOperations  InventoryOperation[]
+  importBatches        ImportBatch[]
 
   @@map("user")
 }
@@ -202,4 +210,397 @@ model AuditLog {
   @@index([userId])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+// =============================================================================
+// Phase 2A — Catalog core. See DATABASE.md and docs/adr/0001-monetary-strategy.md.
+// Monetary columns are BigInt minor units (ARS centavos) — never Int, never
+// Float. See ADR-1 for the Argentina-specific rationale.
+// =============================================================================
+
+model Category {
+  id           String    @id @default(cuid())
+  name         String
+  slug         String    @unique
+  parentId     String?
+  description  String?
+  displayOrder Int       @default(0)
+  isActive     Boolean   @default(true)
+  archivedAt   DateTime?
+  legacySource String?
+  legacyId     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Circular-parent prevention is an app-level check in
+  // modules/categories/service.ts (walk the ancestor chain before allowing a
+  // parentId update) — Postgres has no declarative arbitrary-depth-cycle
+  // constraint. Same documented-soft-enforcement posture as Role.isSystem.
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryParent")
+  products Product[]
+
+  @@unique([legacySource, legacyId])
+  @@map("category")
+}
+
+model Brand {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  description  String?
+  logoBucket   String?
+  logoPath     String?
+  isActive     Boolean  @default(true)
+  legacySource String?
+  legacyId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  products Product[]
+
+  @@unique([legacySource, legacyId])
+  @@map("brand")
+}
+
+model Size {
+  id           String  @id @default(cuid())
+  key          String  @unique
+  displayName  String
+  description  String?
+  displayOrder Int     @default(0)
+  // Plain string, not a lookup table: a low-cardinality display/filter hint
+  // (e.g. "numeric" | "letter"), not something admins manage as its own
+  // entity. Revisit only if it needs its own metadata later.
+  group        String?
+  isActive     Boolean @default(true)
+
+  variants ProductVariant[]
+
+  @@map("size")
+}
+
+model Color {
+  id           String  @id @default(cuid())
+  key          String  @unique
+  displayName  String
+  // Cosmetic swatch aid only — the name is the business value, never the hex.
+  hexPrimary   String?
+  hexSecondary String?
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  variants ProductVariant[]
+
+  @@map("color")
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+model Product {
+  id                    String        @id @default(cuid())
+  internalCode          String?       @unique
+  name                  String
+  slug                  String        @unique
+  shortDescription      String?
+  description           String?
+  // Nullable: legacy-migrated products may land before category mapping is
+  // clean, and DRAFT products should be creatable before categorization is
+  // decided. Compensated by a service-layer rule (see
+  // modules/products/visibility.ts): status can never become ACTIVE without
+  // a categoryId. Reversible — tighten to NOT NULL once data is verified.
+  categoryId            String?
+  brandId               String?
+  status                ProductStatus @default(DRAFT)
+  isFeatured            Boolean       @default(false)
+  seoTitle              String?
+  seoDescription        String?
+  // BigInt minor units — see ADR-1. Null means "no price set yet" (blocks
+  // public visibility; see modules/products/visibility.ts).
+  defaultPriceAmount    BigInt?
+  compareAtPriceAmount  BigInt?
+  referenceCostAmount   BigInt?
+  minimumStockThreshold Int?
+  archivedAt            DateTime?
+  legacySource          String?
+  legacyId              String?
+  createdById           String?
+  updatedById           String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  category  Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brand     Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  createdBy User?            @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User?            @relation("ProductUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  variants  ProductVariant[]
+  images    ProductImage[]
+
+  // Tags: deferred (documented strategy) — see INTEGRATIONS.md /
+  // DATABASE.md. Not modeled this phase.
+
+  @@unique([legacySource, legacyId])
+  @@map("product")
+}
+
+model ProductVariant {
+  id                   String   @id @default(cuid())
+  productId            String
+  sizeId               String?
+  colorId              String?
+  sku                  String   @unique
+  barcode              String?  @unique
+  name                 String?
+  // BigInt minor units — null means "falls back to Product.defaultPriceAmount"
+  // (see modules/products/pricing.ts's getEffectivePrice).
+  priceAmount          BigInt?
+  compareAtPriceAmount BigInt?
+  costAmount           BigInt?
+  isActive             Boolean  @default(true)
+  legacySource         String?
+  legacyId             String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  size    Size?   @relation(fields: [sizeId], references: [id], onDelete: Restrict)
+  color   Color?  @relation(fields: [colorId], references: [id], onDelete: Restrict)
+
+  inventoryMovements InventoryMovement[]
+  inventoryBalances  InventoryBalance[]
+  images             ProductImage[]
+
+  // Covers the fully-specified case (both sizeId and colorId set). The
+  // default/size-only/color-only cases (where a plain @@unique can't stop
+  // duplicates because Postgres treats any-NULL rows as non-conflicting) are
+  // covered by 3 hand-written partial unique indexes added directly in the
+  // migration SQL — see DATABASE.md "Partial indexes" and the migration file
+  // that introduces this model. Prisma's partialIndexes preview feature
+  // could express these directly in schema.prisma, but is deliberately not
+  // used yet (prisma/prisma#29263 — spurious drop/recreate on every
+  // migration as of Prisma 7.4.1); revisit once that's resolved.
+  @@unique([productId, sizeId, colorId])
+  @@map("product_variant")
+}
+
+model ProductImage {
+  id           String   @id @default(cuid())
+  productId    String
+  variantId    String?
+  bucket       String
+  path         String
+  contentType  String
+  fileSize     Int
+  width        Int?
+  height       Int?
+  altText      String?
+  displayOrder Int      @default(0)
+  // Exactly one primary image per product — enforced by a hand-written
+  // partial unique index (product_image_primary_unique, same technique as
+  // ProductVariant/Warehouse; see DATABASE.md) plus a transactional
+  // setPrimaryImage() service function.
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  createdById  String?
+
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  createdBy User?           @relation("ProductImageCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@map("product_image")
+}
+
+// =============================================================================
+// Phase 2B — Inventory core. See docs/adr/0002-inventory-balance-projection.md.
+//
+// InventoryBalance is a derived, current-state projection — never written
+// directly by application code outside modules/inventory/service.ts's
+// applyInventoryOperation, which uses a single atomic guarded UPDATE (see
+// that file) rather than SELECT-then-UPDATE or optimistic locking.
+//
+// InventoryMovement rows are immutable: no update/delete function is
+// exposed, AND the migration that introduces this table adds a Postgres
+// trigger rejecting UPDATE/DELETE at the database level too (applies to
+// every role, including the application's own connection). The same trigger
+// is added to audit_log. See DATABASE.md "Append-only enforcement" for the
+// documented break-glass procedure if a correction is ever genuinely
+// required.
+// =============================================================================
+
+model Warehouse {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  // Exactly one warehouse may be the default — enforced by a hand-written
+  // partial unique index in the migration SQL (same null-axis-style problem
+  // as ProductVariant; see DATABASE.md), plus a transactional
+  // setDefaultWarehouse() service function that unsets the old default
+  // before setting the new one. This is also, for this phase only, the
+  // single warehouse public "in stock" status reads from — see ADR-2.
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  balances  InventoryBalance[]
+  movements InventoryMovement[]
+
+  @@map("warehouse")
+}
+
+model InventoryBalance {
+  id          String   @id @default(cuid())
+  variantId   String
+  warehouseId String
+  quantity    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@unique([variantId, warehouseId])
+  @@map("inventory_balance")
+}
+
+enum InventoryOperationType {
+  INITIAL_STOCK
+  MANUAL_ADJUSTMENT
+  TRANSFER
+  IMPORT
+  INTERNAL_CORRECTION
+}
+
+enum MovementType {
+  INITIAL_STOCK
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  DAMAGE
+  LOSS
+  INTERNAL_CORRECTION
+  TRANSFER_OUT
+  TRANSFER_IN
+}
+
+// The business-operation aggregate — one row per adjustment/transfer/import
+// row/initial-stock load, however many InventoryMovement rows it produces
+// (1 for an adjustment, 2 for a transfer). idempotencyKey is the real
+// duplicate-prevention mechanism (not correlationId, which is
+// grouping-for-observability only) — see modules/inventory/idempotency.ts
+// for the generation strategy per source (manual/transfer/import/future
+// webhook).
+model InventoryOperation {
+  id             String                 @id @default(cuid())
+  operationType  InventoryOperationType
+  idempotencyKey String?                @unique
+  correlationId  String
+  actorId        String
+  reason         String?
+  notes          String?
+  importBatchId  String?
+  metadata       Json?
+  occurredAt     DateTime
+  createdAt      DateTime               @default(now())
+
+  actor       User                @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  movements   InventoryMovement[]
+  importBatch ImportBatch?        @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+
+  @@map("inventory_operation")
+}
+
+model InventoryMovement {
+  id                String       @id @default(cuid())
+  operationId       String
+  variantId         String
+  warehouseId       String
+  movementType      MovementType
+  quantityDelta     Int
+  previousQuantity  Int
+  newQuantity       Int
+  relatedEntityType String?
+  relatedEntityId   String?
+  createdAt         DateTime     @default(now())
+
+  operation InventoryOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  variant   ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  warehouse Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@index([variantId, warehouseId])
+  @@index([relatedEntityType, relatedEntityId])
+  @@map("inventory_movement")
+}
+
+// =============================================================================
+// Phase 2D — Migration-import foundation. Generic, documented CSV template
+// only this phase — real legacy-system field mapping waits for a sample
+// export file. See DATABASE.md and INTEGRATIONS.md.
+// =============================================================================
+
+enum ImportType {
+  CATEGORIES
+  BRANDS
+  PRODUCTS
+  VARIANTS
+  INITIAL_STOCK
+}
+
+enum ImportStatus {
+  UPLOADED
+  VALIDATING
+  READY
+  IMPORTING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+model ImportBatch {
+  id               String       @id @default(cuid())
+  importType       ImportType
+  sourceSystem     String
+  originalFilename String
+  fileChecksum     String
+  status           ImportStatus @default(UPLOADED)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdById      String
+  totalRows        Int          @default(0)
+  successfulRows   Int          @default(0)
+  failedRows       Int          @default(0)
+  metadata         Json?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  createdBy           User                 @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  issues              ImportIssue[]
+  inventoryOperations InventoryOperation[]
+
+  @@map("import_batch")
+}
+
+model ImportIssue {
+  id             String   @id @default(cuid())
+  importBatchId  String
+  rowNumber      Int
+  entityType     String
+  legacyId       String?
+  field          String?
+  errorCode      String
+  message        String
+  // Sensitive-field redaction applied before storage — see
+  // modules/imports/csv.ts. Never a full raw file, never passwords/tokens.
+  rawRowSnapshot Json?
+  createdAt      DateTime @default(now())
+
+  importBatch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@index([importBatchId])
+  @@map("import_issue")
 }

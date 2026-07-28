@@ -7,18 +7,23 @@
 // more than once: roles/permissions are upserted, role-permission links are
 // additive only (never deleted), so manual permission edits made later
 // through the admin UI are never clobbered by a re-seed.
+//
+// Runs via `tsx`, outside the Next.js bundler — every import below resolves
+// to a "-core" module (no "server-only" guard) so the import graph is plain
+// Node.js, not Next.js. See src/lib/auth-core.ts, src/lib/db-core.ts,
+// src/lib/env-core.ts, src/modules/roles/seed-core.ts, and ARCHITECTURE.md.
 import "dotenv/config";
 
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { env } from "@/lib/env";
+import { auth, REQUIRE_EMAIL_VERIFICATION } from "@/lib/auth-core";
+import { prisma } from "@/lib/db-core";
+import { env } from "@/lib/env-core";
 import { PERMISSIONS } from "@/modules/permissions/catalog";
 import { ROLE_DEFINITIONS } from "@/modules/roles/catalog";
 import {
   seedPermissions,
   seedRolesAndAssignments,
   seedStoreConfiguration,
-} from "@/modules/roles/seed";
+} from "@/modules/roles/seed-core";
 
 async function seedInitialAdmin() {
   if (!env.INITIAL_ADMIN_EMAIL || !env.INITIAL_ADMIN_PASSWORD || !env.INITIAL_ADMIN_NAME) {
@@ -28,29 +33,44 @@ async function seedInitialAdmin() {
     return;
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: env.INITIAL_ADMIN_EMAIL } });
-  if (existing) {
-    console.log("Initial administrator already exists — skipping.");
-    return;
-  }
-
-  // Goes through Better Auth's own sign-up path so the password is hashed
-  // exactly as Better Auth expects — never hand-rolled here.
-  const result = await auth.api.signUpEmail({
-    body: {
-      name: env.INITIAL_ADMIN_NAME,
-      email: env.INITIAL_ADMIN_EMAIL,
-      password: env.INITIAL_ADMIN_PASSWORD,
-    },
-  });
-
   const adminRole = await prisma.role.findUniqueOrThrow({ where: { key: "ADMIN" } });
 
-  await prisma.userRole.create({
-    data: { userId: result.user.id, roleId: adminRole.id },
+  let user = await prisma.user.findUnique({ where: { email: env.INITIAL_ADMIN_EMAIL } });
+
+  if (!user) {
+    // Goes through Better Auth's own sign-up path so the password is hashed
+    // exactly as Better Auth expects — never hand-rolled here.
+    const result = await auth.api.signUpEmail({
+      body: {
+        name: env.INITIAL_ADMIN_NAME,
+        email: env.INITIAL_ADMIN_EMAIL,
+        password: env.INITIAL_ADMIN_PASSWORD,
+      },
+    });
+    user = await prisma.user.findUniqueOrThrow({ where: { id: result.user.id } });
+    console.log(`Created initial administrator: ${env.INITIAL_ADMIN_EMAIL}`);
+  } else {
+    console.log("Initial administrator already exists — leaving password untouched.");
+  }
+
+  // Idempotent: upsert, not create — self-heals if a prior run created the
+  // User row but crashed before this assignment landed. Only ever assigns
+  // ADMIN here, regardless of what else the account might already have.
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: user.id, roleId: adminRole.id } },
+    update: {},
+    create: { userId: user.id, roleId: adminRole.id },
   });
 
-  console.log(`Created initial administrator: ${env.INITIAL_ADMIN_EMAIL}`);
+  // The seeded administrator is bootstrapped directly, never through the
+  // real email-verification link flow — so once verification is required to
+  // sign in at all, they need to already be marked verified or they'd lock
+  // themselves out. No-op today (REQUIRE_EMAIL_VERIFICATION is false), ready
+  // for when it flips to true.
+  if (REQUIRE_EMAIL_VERIFICATION && !user.emailVerified) {
+    await prisma.user.update({ where: { id: user.id }, data: { emailVerified: true } });
+    console.log("Marked initial administrator as email-verified (verification is required).");
+  }
 }
 
 async function main() {

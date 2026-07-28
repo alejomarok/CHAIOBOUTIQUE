@@ -17,12 +17,22 @@ export interface RecordAuditLogInput {
 }
 
 // Insert-only: no update/delete function is exposed. This is the practical
-// meaning of "append-only" at the application layer — true DB-level
-// immutability (triggers/permissions) is a documented future hardening step,
-// see SECURITY.md. Callers must never pass passwords, tokens, session
-// cookies or secret URLs in previousValue/newValue/metadata.
-export async function recordAuditLog(input: RecordAuditLogInput): Promise<void> {
-  await prisma.auditLog.create({
+// meaning of "append-only" at the application layer — the migration that
+// introduces inventory_movement also adds a DB-level append-only trigger to
+// audit_log itself (see DATABASE.md). Callers must never pass passwords,
+// tokens, session cookies or secret URLs in previousValue/newValue/metadata.
+//
+// `client` accepts an open Prisma transaction client and defaults to the
+// plain global `prisma` client — every Phase 1 call site is unaffected.
+// Inventory operations (modules/inventory/service.ts) pass their own `tx` so
+// the audit record commits atomically with the balance/movement change it
+// describes — see ARCHITECTURE.md for why that's a scoped exception to the
+// after-commit pattern used elsewhere (roles/store-settings).
+export async function recordAuditLog(
+  input: RecordAuditLogInput,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<void> {
+  await client.auditLog.create({
     data: {
       userId: input.userId,
       action: input.action,

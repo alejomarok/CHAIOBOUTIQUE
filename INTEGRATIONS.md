@@ -4,28 +4,44 @@ Every external integration lives behind a provider interface so business logic n
 directly on a specific vendor's SDK/API shape. This document lists what's implemented vs.
 documented-only this phase, and the interface each future integration must implement.
 
-## Storage — Supabase Storage (interface + implementation built, not wired to any UI)
+## Storage — Supabase Storage (implemented, wired to product images)
 
-**Status: implemented, unused.** `src/modules/storage/`:
+**Status: implemented and in use.** `src/modules/storage/`:
 
 ```ts
 interface StorageProvider {
   upload(input: UploadInput): Promise<StoredObject>;
   getSignedUrl(bucket: string, path: string, expiresInSeconds: number): Promise<string>;
+  getPublicUrl(bucket: string, path: string): string; // synchronous
   delete(bucket: string, path: string): Promise<void>;
 }
 ```
 
-`SupabaseStorageProvider` implements it via `@supabase/supabase-js` with the service role key
-(server-only). `validateUpload()`/`buildObjectPath()` (unit-tested) enforce a MIME allowlist,
-extension-vs-MIME cross-check, size limit, and a generated path scoped to
-`entityType/entityId/` (prevents path traversal). The application database is meant to store
-only metadata (bucket, path, MIME, size) — never binary content.
+`SupabaseStorageProvider` implements it via `@supabase/supabase-js` with the secret key
+(server-only). `validateUpload()`/`buildObjectPath()` enforce a MIME allowlist,
+extension-vs-MIME cross-check, and size limit; `validateImageFileSignature()` additionally checks
+the actual leading bytes of an image upload against its declared `Content-Type` — see
+[SECURITY.md](./SECURITY.md#file-upload-validation-product-images). The generated path is always
+scoped to `entityType/entityId/<uuid>.<ext>` (prevents path traversal; never the caller-supplied
+filename). The application database stores only metadata (bucket, path, MIME, size,
+width/height) — never binary content.
 
-No upload UI exists yet because no entity (product, supplier document) exists to attach a file
-to. Wire this in when the catalog (product images) or purchasing (supplier invoices) modules are
-built. Private buckets by default; a public/optimized bucket is reserved for future
-customer-facing product images.
+`modules/products/product-images.ts` is the first real caller: `uploadProductImage` (upload →
+DB insert, with best-effort storage cleanup if the insert fails), `deleteProductImage` (DB row
+deleted first, storage delete is best-effort — an orphaned storage object is a documented,
+accepted gap, safer than a DB row pointing at a deleted object), `setPrimaryImage` (exactly one
+primary per product, transactional), `replaceProductImage`. No format conversion or resizing
+happens server-side this phase — no `sharp` dependency, deliberately: as of this phase, `sharp`
+has documented compatibility friction with Next.js 16 + Turbopack + Vercel's serverless bundling
+that wasn't worth working around for a first cut. Images are stored exactly as uploaded (JPEG
+stays `.jpg`, etc.); `image-size` (pure JS, no native binary) validates pixel dimensions only
+(max 6000px/side); `next/image` + `next.config.ts`'s `images.remotePatterns` (derived from
+`SUPABASE_URL` at config-load time) handle resizing/format negotiation at render time instead.
+Revisit `sharp` if server-side processing (thumbnails, format normalization) becomes a real
+requirement later.
+
+`SUPABASE_PRODUCT_IMAGES_BUCKET` (default `product-images`) is a public bucket — product photos
+are customer-facing by nature; nothing sensitive is ever stored in it.
 
 ## Email — Mailpit (dev) implemented; Resend (production) deferred
 
@@ -47,6 +63,36 @@ installed yet — deliberately, since there's no API key to configure), read `RE
 env, and swap it in via `getEmailProvider()`. Future notification types (order confirmation,
 shipment, low-stock alerts, etc. — see the original requirements) all go through this same
 interface once their triggering modules exist.
+
+## Migration imports — CSV pipeline (implemented, generic)
+
+**Status: implemented, generic — not mapped to any specific legacy system.** `src/modules/imports/`
+provides a CSV-based path for loading `Category`/`Brand`/`Product`/`ProductVariant`/initial stock
+data from a prior system, at `/admin/imports/products` (`product_imports.view` to see history,
+`product_imports.execute` to run one — ADMIN-only by default, see
+[PERMISSIONS.md](./PERMISSIONS.md)). Not a provider interface like the others in this
+document — there's no external vendor here — but documented for the same reason: so a future
+integration with a specific legacy system's export format extends this pipeline instead of
+reinventing one.
+
+Design, in brief (full detail in [DATABASE.md](./DATABASE.md#migration-import-foundation-importbatch-importissue)
+and [ADR-2](./docs/adr/0002-inventory-balance-projection.md)):
+
+- Column sets are generic and documented (`modules/imports/row-schemas.ts`), not tailored to any
+  particular legacy system — that mapping is added once a real sample export exists.
+- No file is persisted server-side; a dry-run preview and the real execution are each a
+  self-contained parse of the same in-browser file selection.
+- One database transaction per row — a bad row is recorded and skipped, never rolling back rows
+  already committed.
+- Row-level idempotency (derived from `sourceSystem` + the row's own legacy id, not the import
+  batch) makes re-uploading the same or a corrected file safe — already-applied rows are
+  detected and skipped, not re-applied.
+- Every generated CSV (template, error report) is run through `sanitizeCsvCell()` — see
+  [SECURITY.md](./SECURITY.md#csv-injection-protection-imports).
+
+When a real legacy system's export format is known, add its column mapping as a translation step
+ahead of `modules/imports/row-schemas.ts`'s generic shape, rather than changing the generic
+pipeline itself.
 
 ## Payments — Mercado Pago (documented only, not implemented)
 

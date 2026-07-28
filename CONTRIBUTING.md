@@ -59,8 +59,34 @@ npm run build
 1. Edit `prisma/schema.prisma`.
 2. `npx prisma migrate dev --name <description>`.
 3. `npm run prisma:generate` if it wasn't run automatically.
-4. If the change affects RBAC/store-settings/audit, update the relevant section of
-   [DATABASE.md](./DATABASE.md).
+4. If the change affects RBAC/store-settings/audit/catalog/inventory, update the relevant section
+   of [DATABASE.md](./DATABASE.md).
+
+If the change needs a **partial unique index** (a "only one X per Y, but only when Z is null"
+constraint — see the `ProductVariant`/`Warehouse`/`ProductImage` examples in
+[DATABASE.md](./DATABASE.md#partial-indexes--hand-written-migration-sql-not-prismas-preview-feature))
+or touches an **append-only** table, use `prisma migrate dev --create-only` and hand-edit the
+generated SQL before applying it — don't reach for Prisma's `partialIndexes` preview feature (see
+that same section for why).
+
+## Adding a new import type
+
+The migration-import pipeline (`src/modules/imports/`) is generic — extending it to a new entity
+type (or a specific legacy system's column mapping) follows one pattern:
+
+1. Add the row shape to `IMPORT_ROW_SCHEMAS`/`IMPORT_TEMPLATE_HEADERS` in
+   `modules/imports/row-schemas.ts` (a Zod schema, string-in/typed-out — money fields go through
+   `displayToMinorUnits`, never a raw `Number()`).
+2. Add a `dedupeKey` case in `modules/imports/validate.ts` for the within-file duplicate check.
+3. Add a `processXRow(tx, row, batch, actorId)` function in `modules/imports/row-processors.ts` —
+   it receives an already-open transaction (never opens its own; see
+   [ADR-2](./docs/adr/0002-inventory-balance-projection.md)'s "no nested transactions" rule) and
+   throws `ImportRowError` for a business-rule failure (row gets recorded as a non-fatal
+   `ImportIssue`, not a batch failure).
+4. Wire the new case into `processRow`'s switch in `modules/imports/service.ts`.
+5. Add an example row to `EXAMPLE_ROWS` in `modules/imports/templates.ts`.
+6. Add unit tests (schema validation, dedupe) and an integration test (real DB round trip,
+   idempotency on re-run) — see `tests/integration/imports.test.ts` for the pattern.
 
 ## Testing expectations
 

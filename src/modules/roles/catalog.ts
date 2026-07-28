@@ -60,6 +60,22 @@ const MANAGER_PERMISSIONS: Permission[] = [
   "reports.view_profit",
   "users.view",
   "settings.view",
+
+  // Phase 2 — catalog & inventory. product_imports.execute deliberately
+  // excluded: a bulk import can rewrite pricing/stock across many rows at
+  // once, a different risk class than day-to-day operations — ADMIN only,
+  // a reversible least-privilege default like the rest of this list.
+  "products.archive",
+  "categories.view",
+  "categories.manage",
+  "brands.view",
+  "brands.manage",
+  "attributes.view",
+  "attributes.manage",
+  "warehouses.view",
+  "warehouses.manage",
+  "product_images.manage",
+  "product_imports.view",
 ];
 
 // Explicit spec: can sell, search products/stock, manage customers, process
@@ -101,6 +117,11 @@ const WAREHOUSE_PERMISSIONS: Permission[] = [
   "orders.manage",
   "shipments.view",
   "shipments.manage",
+
+  // Phase 2: needs to pick a warehouse when adjusting/transferring stock.
+  // Not warehouses.manage (creating/editing warehouse entities) or
+  // attributes.*/categories.* (catalog curation, not operational stock data).
+  "warehouses.view",
 ];
 
 // Explicit spec: invoices, credit notes, taxes, sales/purchase reports,

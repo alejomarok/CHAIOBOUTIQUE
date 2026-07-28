@@ -50,6 +50,11 @@ src/
     audit/         # append-only audit log service
     storage/       # StorageProvider interface + Supabase implementation + validation
     email/         # EmailProvider interface + Mailpit/SMTP implementation
+    categories/, brands/, attributes/  # catalog lookup entities (sizes/colors)
+    products/      # products, variants, pricing/visibility rules, images, public DTOs
+    warehouses/    # warehouse CRUD, single-default invariant
+    inventory/     # InventoryOperation/Movement/Balance — see ADR-2
+    imports/       # CSV migration-import pipeline — see DATABASE.md, ADR-2
   components/
     ui/            # shadcn/ui primitives
     layout/        # sidebar, header, logo, user menu
@@ -109,9 +114,23 @@ rather than only through a full HTTP request — see `tests/integration/rbac.tes
 
 ## Data model boundaries (this phase)
 
-Only auth + RBAC + store settings + audit exist. See [DATABASE.md](./DATABASE.md) for the full
-schema. Deliberately no catalog/inventory/sales/payment/shipping/invoicing tables yet — each
-gets its own reviewed data model (see [ROADMAP.md](./ROADMAP.md)).
+Auth + RBAC + store settings + audit + catalog (categories/brands/sizes/colors/products/
+variants/images) + inventory (warehouses/balances/operations/movements) + a generic CSV
+migration-import pipeline exist. See [DATABASE.md](./DATABASE.md) for the full schema.
+Deliberately no suppliers/purchasing/customers/sales/payments/shipping/invoicing tables yet —
+each gets its own reviewed data model (see [ROADMAP.md](./ROADMAP.md)).
+
+Catalog/inventory mutations follow the same layering as everything else (page/action → service →
+Prisma), with two narrow, documented exceptions specific to inventory — see
+[ADR-2](./docs/adr/0002-inventory-balance-projection.md):
+
+- Inventory writes go through one shared transaction-aware primitive
+  (`modules/inventory/service.ts`'s `applyInventoryOperation`) rather than each caller writing
+  Prisma calls directly, so `adjustInventory`/`transferInventory`/the per-row import pipeline
+  can't accidentally diverge on the atomic-update/idempotency/audit logic.
+- Inventory audit entries are written in the **same** transaction as the balance change, not
+  after commit like every other module — see "Known limitations" below and ADR-2 for why this
+  one domain gets the exception.
 
 ## Known limitations (tracked, not hidden)
 
@@ -119,5 +138,16 @@ gets its own reviewed data model (see [ROADMAP.md](./ROADMAP.md)).
   a database constraint. Acceptable for this phase; documented as a soft-enforcement gap.
 - Rate limiting (`src/lib/rate-limit.ts`, planned) has no real backing store yet — see
   [SECURITY.md](./SECURITY.md).
-- `AuditLog` is "append-only" only in the sense that no update/delete function is exposed by
-  `src/modules/audit` — there's no DB-level trigger/permission enforcing true immutability yet.
+- `AuditLog` and `InventoryMovement` are append-only both by application convention (no
+  update/delete function exposed) **and**, since the catalog/inventory phase, by a database-level
+  `BEFORE UPDATE OR DELETE` trigger — see
+  [DATABASE.md](./DATABASE.md#append-only-enforcement-inventory_movement-audit_log).
+- Inventory audit entries are written inside the same transaction as their triggering state
+  change, a deliberate, scoped deviation from the after-commit pattern every other module
+  follows — see [ADR-2](./docs/adr/0002-inventory-balance-projection.md). Don't copy this
+  pattern into a new module without the same "committed-but-unaudited state would be a real
+  operational problem" justification.
+- The CSV import pipeline (`modules/imports/`) processes catalog rows single-pass, in file
+  order — a row referencing a parent/product that appears later in the same file fails; source
+  files must list parents/products before their children/variants. See
+  [DATABASE.md](./DATABASE.md#migration-import-foundation-importbatch-importissue).

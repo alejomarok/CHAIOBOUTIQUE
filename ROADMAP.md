@@ -1,6 +1,6 @@
 # Roadmap
 
-## Phase 0 — Foundation (this repository, current state)
+## Phase 0 — Foundation (implemented)
 
 Implemented:
 
@@ -33,17 +33,42 @@ Explicitly **not** built this phase (see each module's own future phase below): 
 inventory, purchasing, customers (commercial CRM fields), sales, POS transactions, payments,
 shipping, invoicing, cash register, reports.
 
-## Phase 1 — Catalog & Inventory (proposed, not started)
+## Phase 1 — Catalog & Inventory (implemented)
 
-Requires its own data-model review before implementation, per the standing rule that catalog
-work only begins after that review is presented and approved:
+Its data-model review happened before implementation, per the standing rule — see
+[docs/adr/0001-monetary-strategy.md](./docs/adr/0001-monetary-strategy.md) and
+[docs/adr/0002-inventory-balance-projection.md](./docs/adr/0002-inventory-balance-projection.md)
+for the two decisions that shaped it most.
 
-- Products, variants (size/color), brands, categories/subcategories, tags, images.
-- Warehouses, variant-level stock (available/reserved/physical/incoming).
-- Inventory movements (all types from the original spec: purchase, sale, return, adjustment,
-  damaged, lost, reservation, transfer, initial import) — every stock change goes through a
-  movement record inside a transaction, never a silent overwrite.
-- Price/cost history.
+Implemented:
+
+- Catalog: `Category` (self-referencing, cycle-checked), `Brand`, `Size`/`Color`, `Product`
+  (draft/active/inactive/archived, category/brand-optional-until-published), `ProductVariant`
+  (size/color axes, SKU/barcode unique, per-variant price/cost override), `ProductImage`
+  (Supabase Storage, magic-byte validated, exactly one primary per product).
+- Pricing: `BigInt` minor-unit money throughout (never `Int`/float — see ADR-1), effective-price
+  fallback (variant → product default), compare-at validation.
+- Inventory: `Warehouse` (single default), `InventoryBalance` (derived projection),
+  `InventoryOperation`/`InventoryMovement` (append-only ledger, DB-trigger-enforced, atomic
+  guarded updates, real idempotency keys — see ADR-2). Manual adjustments and warehouse-to-
+  warehouse transfers, both audited in the same transaction as the state change.
+- Public storefront: `/catalog` (filterable, paginated) and `/product/[slug]`, backed by a single
+  DTO boundary (`modules/products/public-queries.ts`) that structurally excludes cost, legacy
+  ids, and exact stock counts — public "in stock" is a derived status, not a number.
+- Admin UI: full CRUD for categories/brands/sizes/colors/warehouses, product create/edit with
+  variant matrix generation, inventory adjustment/transfer forms, movement history.
+- Migration-import foundation: a generic CSV pipeline (`/admin/imports/products`) for
+  categories/brands/products/variants/initial stock — per-row transactions, partial-failure
+  tolerant, idempotent on re-upload. Not mapped to any specific legacy system yet; that mapping
+  is added once a real sample export exists.
+- 12 new permission keys (`categories.*`, `brands.*`, `attributes.*`, `warehouses.*`,
+  `products.archive`, `product_images.manage`, `product_imports.*`), wired into the MANAGER/
+  WAREHOUSE role definitions — see [PERMISSIONS.md](./PERMISSIONS.md).
+
+Explicitly **not** built this phase (see later phases below): suppliers, purchase orders,
+supplier invoices, customer management, in-store sales/POS transactions, ecommerce checkout/cart/
+orders, payments, cash register, shipping, electronic invoicing, sales-related returns, profit
+reports.
 
 ## Phase 2 — Suppliers & Purchasing (proposed)
 

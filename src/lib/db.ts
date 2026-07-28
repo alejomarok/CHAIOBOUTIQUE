@@ -1,22 +1,7 @@
 import "server-only";
 
-import { PrismaPg } from "@prisma/adapter-pg";
-
-import { PrismaClient } from "@/generated/prisma/client";
-import { env } from "@/lib/env";
-
-// Prisma 7 requires an explicit driver adapter. DATABASE_URL is the pooled
-// Supabase connection (pgbouncer, port 6543) — safe for many short-lived
-// serverless connections. Migrations use DIRECT_URL instead; see
-// prisma.config.ts and DATABASE.md.
-const adapter = new PrismaPg({ connectionString: env.DATABASE_URL });
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
-
-if (env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// The actual PrismaClient construction lives in db-core.ts, which has no
+// "server-only" import so it stays importable from a plain Node context
+// (prisma/seed.ts via `tsx`) — see that file and ARCHITECTURE.md. Every
+// Next.js-side module keeps importing "@/lib/db" unchanged.
+export { prisma } from "./db-core";

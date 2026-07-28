@@ -63,11 +63,59 @@ Spanish message to the user.
 ## Audit logging
 
 `src/modules/audit` exposes only `recordAuditLog`/`listAuditLogs` — no update or delete function
-is exposed, which is the practical meaning of "append-only" at this phase (true DB-level
-immutability via triggers/permissions is a documented future hardening step, not yet built).
-Wired into every user/role/store-settings mutation this phase. Sensitive values structurally
-cannot leak into an audit row, since passwords/tokens never reach application code that calls
-`recordAuditLog` — Better Auth owns them internally.
+is exposed. Since the catalog/inventory phase, "append-only" is also a **database-level**
+guarantee, not just an application convention: a Postgres `BEFORE UPDATE OR DELETE` trigger on
+`audit_log` (applied to every database role, including the application's own connection) rejects
+any attempt, mirroring the same trigger on `inventory_movement` — see
+[DATABASE.md](./DATABASE.md#append-only-enforcement-inventory_movement-audit_log) for the SQL and
+the documented, human-only break-glass procedure for the (expected-never) exceptional case.
+Wired into every user/role/store-settings/catalog/inventory mutation. Sensitive values
+structurally cannot leak into an audit row, since passwords/tokens never reach application code
+that calls `recordAuditLog` — Better Auth owns them internally.
+
+**Inventory-specific exception to the after-commit pattern**: every other mutation records its
+audit entry after its triggering transaction commits. Inventory operations
+(`modules/inventory/service.ts`'s `applyInventoryOperation`) write the balance change, the
+`InventoryOperation`/`InventoryMovement` rows, and the `AuditLog` entry inside **one**
+transaction — deliberate, because a committed-but-unaudited stock change is a real operational
+risk in a way most other mutations aren't. See
+[ADR-2](./docs/adr/0002-inventory-balance-projection.md).
+
+## File upload validation (product images)
+
+`src/modules/storage/validation.ts`, called from `modules/products/product-images.ts`'s
+`uploadProductImage`, layers three checks — none alone is trusted:
+
+1. **MIME allowlist + extension cross-check** (`validateUpload`) — the declared `Content-Type`
+   must be in an explicit per-caller allowlist (product images: JPEG/PNG/WebP only), and the file
+   extension must match it.
+2. **File-signature ("magic bytes") check** (`validateImageFileSignature`) — reads the first
+   bytes of the actual uploaded buffer (JPEG `FF D8 FF`, PNG `89 50 4E 47 0D`, WebP `RIFF`…`WEBP`
+   at offset 8) and rejects a mismatch between the declared `Content-Type` and what the bytes
+   actually are. A browser or a crafted request can lie about `Content-Type`; it can't fake the
+   file's own leading bytes without producing an invalid image.
+3. **Dimension bound** (`image-size`, a pure-JS decoder — no `sharp`/native dependency this
+   phase, see [INTEGRATIONS.md](./INTEGRATIONS.md)) rejects anything over 6000px per side before
+   it's ever stored.
+
+The generated storage path (`buildObjectPath`) never uses the caller-supplied filename — it's a
+generated UUID under `entityType/entityId/`, which also rules out path traversal.
+
+## CSV injection protection (imports)
+
+Every CSV the application generates for a human to open in a spreadsheet — the import template
+download and the post-import error report (`src/modules/imports/csv.ts`/`templates.ts`) — runs
+every cell through `sanitizeCsvCell()`, which prefixes a value starting with `=`, `+`, `-`, or
+`@` with a single quote. Excel/Sheets/LibreOffice interpret an unprefixed leading `=`/`+`/`-`/`@`
+as a formula, which is the standard vector for CSV/formula injection when a generated report
+later gets opened by a human; the prefix forces the cell to render as literal text instead. This
+is the OWASP-documented mitigation for this class of issue — see
+`tests/unit/imports-csv.test.ts` for the direct assertion.
+
+Uploaded import CSVs, by contrast, are never opened in a spreadsheet by this application — they
+go through `csv-parse` into plain string fields, validated by Zod
+(`modules/imports/row-schemas.ts`) before touching the database, so injection isn't a concern on
+the read side; the mitigation only matters for CSVs this application writes back out.
 
 ## CSRF
 

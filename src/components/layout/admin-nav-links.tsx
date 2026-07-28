@@ -1,10 +1,45 @@
 "use client";
 
+import {
+  Boxes,
+  KeyRound,
+  LayoutDashboard,
+  Package,
+  Palette,
+  Ruler,
+  Settings,
+  ShieldCheck,
+  Tags,
+  Upload,
+  UserRound,
+  Users,
+  Warehouse,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { ComponentType } from "react";
 
-import type { AdminNavItem } from "@/components/layout/admin-nav-items";
+import type { AdminIconName, AdminNavItem } from "@/components/layout/admin-nav-items";
 import { cn } from "@/lib/utils";
+
+// Lucide icon components are resolved here, client-side, from the plain
+// iconName string the server sent — never passed as a component/function
+// prop across the Server → Client boundary. See admin-nav-items.ts.
+const ICON_MAP: Record<AdminIconName, ComponentType<{ className?: string }>> = {
+  "layout-dashboard": LayoutDashboard,
+  package: Package,
+  tags: Tags,
+  "shield-check": ShieldCheck,
+  ruler: Ruler,
+  palette: Palette,
+  warehouse: Warehouse,
+  boxes: Boxes,
+  upload: Upload,
+  users: Users,
+  "key-round": KeyRound,
+  settings: Settings,
+  "user-round": UserRound,
+};
 
 export function AdminNavLinks({
   items,
@@ -19,7 +54,7 @@ export function AdminNavLinks({
     <nav className="flex flex-col gap-1">
       {items.map((item) => {
         const isActive = pathname === item.href;
-        const Icon = item.icon;
+        const Icon = ICON_MAP[item.iconName];
         return (
           <Link
             key={item.href}

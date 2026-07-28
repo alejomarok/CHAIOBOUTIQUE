@@ -66,4 +66,45 @@ describe("role catalog", () => {
     expect(manager.permissions).not.toContain("roles.manage");
     expect(manager.permissions).not.toContain("settings.manage");
   });
+
+  it("MANAGER manages the catalog but cannot execute bulk imports", () => {
+    const manager = ROLE_DEFINITIONS.find((role) => role.key === "MANAGER")!;
+    expect(manager.permissions).toContain("categories.manage");
+    expect(manager.permissions).toContain("brands.manage");
+    expect(manager.permissions).toContain("attributes.manage");
+    expect(manager.permissions).toContain("warehouses.manage");
+    expect(manager.permissions).toContain("product_imports.view");
+    expect(manager.permissions).not.toContain("product_imports.execute");
+  });
+
+  it("WAREHOUSE can view warehouses but not manage them or curate the catalog", () => {
+    const warehouse = ROLE_DEFINITIONS.find((role) => role.key === "WAREHOUSE")!;
+    expect(warehouse.permissions).toContain("warehouses.view");
+    expect(warehouse.permissions).not.toContain("warehouses.manage");
+    expect(warehouse.permissions).not.toContain("categories.manage");
+    expect(warehouse.permissions).not.toContain("attributes.manage");
+  });
+
+  it("SALES_REPRESENTATIVE and ACCOUNTANT receive no new catalog-editing permissions", () => {
+    const sales = ROLE_DEFINITIONS.find((role) => role.key === "SALES_REPRESENTATIVE")!;
+    const accountant = ROLE_DEFINITIONS.find((role) => role.key === "ACCOUNTANT")!;
+    for (const key of [
+      "categories.manage",
+      "brands.manage",
+      "attributes.manage",
+      "warehouses.manage",
+      "product_images.manage",
+      "product_imports.execute",
+    ] as const) {
+      expect(sales.permissions).not.toContain(key);
+      expect(accountant.permissions).not.toContain(key);
+    }
+  });
+
+  it("product_imports.execute is ADMIN-only", () => {
+    for (const role of ROLE_DEFINITIONS) {
+      if (role.key === "ADMIN") continue;
+      expect(role.permissions).not.toContain("product_imports.execute");
+    }
+  });
 });

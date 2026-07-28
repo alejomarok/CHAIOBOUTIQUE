@@ -4,9 +4,11 @@ Women's fashion store platform: public ecommerce storefront, customer account ar
 administration panel, and point-of-sale — one modular-monolith Next.js application backed by
 PostgreSQL.
 
-**This repository currently contains the foundation phase only.** See [ROADMAP.md](./ROADMAP.md)
-for what's implemented vs. planned. There is no catalog, inventory, sales, payments, shipping, or
-invoicing yet — those each get their own reviewed data model before implementation.
+**This repository currently contains the foundation, catalog, and inventory phases.** See
+[ROADMAP.md](./ROADMAP.md) for what's implemented vs. planned. There is a public product catalog,
+variant-level inventory across warehouses, and a CSV migration-import pipeline — but no
+suppliers, purchasing, customers, sales, payments, shipping, or invoicing yet; each of those
+still gets its own reviewed data model before implementation.
 
 ## Tech stack
 
@@ -111,5 +113,7 @@ npm run test:e2e          # Playwright, needs TEST_DATABASE_URL + a browser
 - [SECURITY.md](./SECURITY.md) — security decisions and known gaps
 - [PERMISSIONS.md](./PERMISSIONS.md) — role/permission catalog and matrix
 - [INTEGRATIONS.md](./INTEGRATIONS.md) — external integration boundaries (Mercado Pago,
-  Andreani, ARCA, Supabase Storage, email)
+  Andreani, ARCA, Supabase Storage, email, CSV migration imports)
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — local workflow, conventions, PR checklist
+- [docs/adr/](./docs/adr/) — architecture decision records (monetary strategy, inventory
+  ledger/balance design)

@@ -1,0 +1,149 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+import { minorUnitsToDisplay } from "@/lib/money";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { requirePermission } from "@/modules/auth";
+import { listSizes, listColors } from "@/modules/attributes/service";
+import { getProductImagePublicUrl } from "@/modules/products/product-images";
+import { getProductById } from "@/modules/products/service";
+
+import { ProductImagesManager } from "./product-images-manager";
+import { ProductStatusActions } from "./product-status-actions";
+import { VariantManager } from "./variant-manager";
+
+const STATUS_LABELS_ES: Record<string, string> = {
+  DRAFT: "Borrador",
+  ACTIVE: "Activo",
+  INACTIVE: "Inactivo",
+  ARCHIVED: "Archivado",
+};
+
+export const metadata = { title: "Detalle de producto" };
+
+export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requirePermission("products.view");
+  const { id } = await params;
+
+  const [product, sizes, colors] = await Promise.all([
+    getProductById(id),
+    listSizes(),
+    listColors(),
+  ]);
+  if (!product) notFound();
+
+  const canViewCost = user.permissions.has("products.view_cost");
+  const canEdit = user.permissions.has("products.edit");
+  const canManageImages = user.permissions.has("product_images.manage");
+
+  return (
+    <div className="flex max-w-4xl flex-col gap-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-2xl font-semibold">{product.name}</h1>
+          <div className="mt-1 flex items-center gap-2">
+            <Badge variant={product.status === "ACTIVE" ? "default" : "outline"}>
+              {STATUS_LABELS_ES[product.status]}
+            </Badge>
+            {product.category && (
+              <span className="text-muted-foreground text-sm">{product.category.name}</span>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {canEdit && (
+            <Button asChild variant="outline">
+              <Link href={`/admin/products/${product.id}/edit`}>Editar</Link>
+            </Button>
+          )}
+          <ProductStatusActions
+            productId={product.id}
+            status={product.status}
+            canPublish={user.permissions.has("products.publish")}
+            canArchive={user.permissions.has("products.archive")}
+          />
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Información general</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-muted-foreground text-xs">Precio</p>
+            <p>
+              {product.defaultPriceAmount !== null
+                ? minorUnitsToDisplay(product.defaultPriceAmount)
+                : "Sin definir"}
+            </p>
+          </div>
+          {canViewCost && (
+            <div>
+              <p className="text-muted-foreground text-xs">Costo de referencia</p>
+              <p>
+                {product.referenceCostAmount !== null
+                  ? minorUnitsToDisplay(product.referenceCostAmount)
+                  : "Sin definir"}
+              </p>
+            </div>
+          )}
+          <div>
+            <p className="text-muted-foreground text-xs">Marca</p>
+            <p>{product.brand?.name ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Slug</p>
+            <p className="font-mono text-xs">{product.slug}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Imágenes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {canManageImages ? (
+            <ProductImagesManager
+              productId={product.id}
+              images={product.images.map((image) => ({
+                id: image.id,
+                url: getProductImagePublicUrl(image),
+                altText: image.altText,
+                isPrimary: image.isPrimary,
+              }))}
+            />
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No tenés permiso para gestionar imágenes.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Variantes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <VariantManager
+            productId={product.id}
+            sizes={sizes.map((s) => ({ id: s.id, displayName: s.displayName }))}
+            colors={colors.map((c) => ({ id: c.id, displayName: c.displayName }))}
+            existingVariants={product.variants.map((v) => ({
+              id: v.id,
+              sku: v.sku,
+              isActive: v.isActive,
+              sizeName: v.size?.displayName ?? null,
+              colorName: v.color?.displayName ?? null,
+            }))}
+            canManage={canEdit}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
