@@ -65,6 +65,17 @@ export const PERMISSIONS = [
   "product_images.manage",
   "product_imports.view",
   "product_imports.execute",
+
+  // Phase 3A — portal access. Distinct from any business-capability
+  // permission (e.g. "sales.create"): these gate whether an account may
+  // enter the /admin or /pos layout at all, never what it can do once
+  // inside — see ARCHITECTURE.md and docs/adr/0003-customer-registration.md.
+  // Never granted to CUSTOMER; every current staff role gets admin.access
+  // (preserving today's "any staff login reaches /admin" behavior exactly,
+  // now via an explicit, named, testable capability instead of an inferred
+  // "not a customer" check).
+  "admin.access",
+  "pos.access",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -133,4 +144,7 @@ export const PERMISSION_LABELS_ES: Record<Permission, string> = {
   "product_images.manage": "Gestionar imágenes de productos",
   "product_imports.view": "Ver importaciones",
   "product_imports.execute": "Ejecutar importaciones",
+
+  "admin.access": "Acceder al panel de administración",
+  "pos.access": "Acceder al punto de venta",
 };

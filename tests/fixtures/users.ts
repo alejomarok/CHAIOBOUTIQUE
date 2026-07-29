@@ -24,9 +24,18 @@ export async function createTestUser(input: {
   return result.user;
 }
 
+// Deliberately does NOT delete the User row itself: audit_log.userId
+// references it with onDelete: SetNull, and audit_log has a real,
+// DB-level BEFORE UPDATE OR DELETE append-only trigger — that SetNull
+// cascade is an UPDATE, which the trigger correctly rejects. Almost every
+// service call in this codebase self-audits, so in practice any test user
+// that exercised real behavior is unrepairable to delete this way. Session/
+// account/role-assignment rows have no such constraint and are still
+// cleaned up per-test; the User row itself is left for the isolated test
+// database's full reset (see tests/integration/reset-db.ts, run once before
+// the whole suite) to clear between `npm run test:integration` runs.
 export async function deleteTestUser(userId: string): Promise<void> {
   await prisma.session.deleteMany({ where: { userId } });
   await prisma.account.deleteMany({ where: { userId } });
   await prisma.userRole.deleteMany({ where: { userId } });
-  await prisma.user.delete({ where: { id: userId } });
 }

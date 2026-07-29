@@ -16,6 +16,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { resolvePostLoginDestinationAction } from "@/app/(auth)/login/actions";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { loginSchema, type LoginInput } from "@/modules/auth/schemas";
@@ -36,16 +37,25 @@ export function LoginForm() {
       email: values.email,
       password: values.password,
     });
-    setIsSubmitting(false);
 
     if (error) {
+      setIsSubmitting(false);
       // Generic on purpose: never confirm/deny whether the email exists.
       toast.error("No pudimos iniciar sesión. Revisá tu email y contraseña.");
       return;
     }
 
-    const redirectTo = searchParams.get("redirectTo") || "/admin";
-    router.push(redirectTo);
+    // The server, never the client, decides the final destination: only it
+    // knows the account's real permissions. `redirectTo` is passed through
+    // untrusted — resolvePostLoginDestinationAction only honors it if it's
+    // both same-origin-safe and a destination this account is actually
+    // authorized for; otherwise it falls back to the role-based default.
+    // See modules/auth/post-login-redirect.ts.
+    const requestedRedirect = searchParams.get("redirectTo");
+    const destination = await resolvePostLoginDestinationAction(requestedRedirect);
+
+    setIsSubmitting(false);
+    router.push(destination);
     router.refresh();
   }
 

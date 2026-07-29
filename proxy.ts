@@ -2,6 +2,8 @@ import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { isSafeInternalPath } from "@/lib/safe-redirect";
+
 // Coarse gate only: an optimistic cookie-presence check, not a permission
 // check. The real authorization (requireUser/requirePermission, which can
 // hit Postgres) happens in each admin/POS layout or page via
@@ -12,7 +14,14 @@ export function proxy(request: NextRequest) {
 
   if (!hasSessionCookie) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirectTo", request.nextUrl.pathname);
+    // request.nextUrl.pathname is already same-origin by construction (it's
+    // Next's own matched route, never an external string) — this check is
+    // defense in depth, not the only thing standing between an attacker and
+    // an open redirect. See LoginForm for the check that actually matters:
+    // it's the one reading a redirectTo an attacker could have crafted.
+    if (isSafeInternalPath(request.nextUrl.pathname)) {
+      loginUrl.searchParams.set("redirectTo", request.nextUrl.pathname);
+    }
     return NextResponse.redirect(loginUrl);
   }
 

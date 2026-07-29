@@ -55,6 +55,26 @@ describe("RBAC permission evaluation (real DB, no mocks)", () => {
     // actually matters for authorization correctness.
     expect(result.permissions.has("reports.view_profit")).toBe(false);
     expect(result.permissions.has("products.view_cost")).toBe(false);
+    // Phase 3A: WAREHOUSE reaches /admin (inventory, warehouses) but never
+    // /pos (doesn't sell) — see modules/roles/catalog.ts.
+    expect(result.permissions.has("admin.access")).toBe(true);
+    expect(result.permissions.has("pos.access")).toBe(false);
+  });
+
+  it("a CUSTOMER user gets zero permissions — never admin.access or pos.access", async () => {
+    const user = await createTestUser({
+      name: "Clienta RBAC Test",
+      email: `clienta-rbac-${Date.now()}@test.chaioboutique.local`,
+      password: "password123",
+      roleKey: "CUSTOMER",
+    });
+    createdUserIds.push(user.id);
+
+    const result = await getUserPermissions(user.id);
+    expect(result.roles).toEqual(["CUSTOMER"]);
+    expect(result.permissions.size).toBe(0);
+    expect(result.permissions.has("admin.access")).toBe(false);
+    expect(result.permissions.has("pos.access")).toBe(false);
   });
 
   it("a user with two roles gets the union of both roles' permissions", async () => {

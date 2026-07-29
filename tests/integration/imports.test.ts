@@ -99,24 +99,29 @@ describe("imports — CSV pipeline, idempotency, partial failure (real DB)", () 
     const actor = await setupActor();
     const sourceSystem = `test-src-${Date.now()}`;
 
+    // No cleanup.push for category/product/variant/warehouse here,
+    // deliberately: this test applies a real INITIAL_STOCK inventory
+    // operation against them, so they end up referenced by
+    // inventory_balance/inventory_movement (onDelete: Restrict) —
+    // genuinely undeletable afterward. The isolated test database's full
+    // reset (tests/integration/reset-db.ts) clears this between
+    // `npm run test:integration` runs instead. ImportBatch has no such
+    // constraint (InventoryOperation.importBatchId is onDelete: SetNull,
+    // not append-only), so its cleanup below stays.
     const category = await createCategory({ name: `Imports Categoria ${Date.now()}` }, actor.id);
-    cleanup.push(() => prisma.category.delete({ where: { id: category.id } }));
     const product = await createProduct(
       { name: `Imports Producto ${Date.now()}`, categoryId: category.id },
       actor.id,
     );
-    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
     const [variant] = await createVariants(
       product.id,
       [{ sizeId: null, colorId: null, sku: `IMP-SKU-${Date.now()}` }],
       actor.id,
     );
-    cleanup.push(() => prisma.productVariant.delete({ where: { id: variant.id } }));
     const warehouse = await createWarehouse(
       { code: `IMP-WH-${Date.now()}`, name: "Depósito Imports" },
       actor.id,
     );
-    cleanup.push(() => prisma.warehouse.delete({ where: { id: warehouse.id } }));
 
     const csv = `sku,warehouseCode,quantity,legacyId\n${variant.sku},${warehouse.code},25,\n`;
 
@@ -164,29 +169,27 @@ describe("imports — CSV pipeline, idempotency, partial failure (real DB)", () 
     const actor = await setupActor();
     const sourceSystem = `test-src-${Date.now()}`;
 
+    // Same reasoning as the idempotency test above: this test applies real
+    // inventory operations, so category/product/variant/warehouse cleanup
+    // is omitted deliberately — see that test's comment.
     const category = await createCategory({ name: `Imports Categoria B ${Date.now()}` }, actor.id);
-    cleanup.push(() => prisma.category.delete({ where: { id: category.id } }));
     const product = await createProduct(
       { name: `Imports Producto B ${Date.now()}`, categoryId: category.id },
       actor.id,
     );
-    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
     const [variant] = await createVariants(
       product.id,
       [{ sizeId: null, colorId: null, sku: `IMP-SKU-B-${Date.now()}` }],
       actor.id,
     );
-    cleanup.push(() => prisma.productVariant.delete({ where: { id: variant.id } }));
     const warehouseA = await createWarehouse(
       { code: `IMP-WA-${Date.now()}`, name: "Depósito A" },
       actor.id,
     );
-    cleanup.push(() => prisma.warehouse.delete({ where: { id: warehouseA.id } }));
     const warehouseB = await createWarehouse(
       { code: `IMP-WB-${Date.now()}`, name: "Depósito B" },
       actor.id,
     );
-    cleanup.push(() => prisma.warehouse.delete({ where: { id: warehouseB.id } }));
 
     const csv = [
       "sku,warehouseCode,quantity,legacyId",

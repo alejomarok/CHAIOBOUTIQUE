@@ -76,6 +76,12 @@ const MANAGER_PERMISSIONS: Permission[] = [
   "warehouses.manage",
   "product_images.manage",
   "product_imports.view",
+
+  // Phase 3A — portal access. MANAGER already reaches /admin and /pos today
+  // (via the permission set above); these make that explicit rather than
+  // inferred. See modules/permissions/catalog.ts.
+  "admin.access",
+  "pos.access",
 ];
 
 // Explicit spec: can sell, search products/stock, manage customers, process
@@ -100,6 +106,10 @@ const SALES_REPRESENTATIVE_PERMISSIONS: Permission[] = [
   "shipments.view",
   "invoices.view",
   "invoices.issue",
+
+  // Phase 3A — portal access, same reasoning as MANAGER above.
+  "admin.access",
+  "pos.access",
 ];
 
 // Explicit spec: reception, movements, adjustments, order/shipment
@@ -122,6 +132,10 @@ const WAREHOUSE_PERMISSIONS: Permission[] = [
   // Not warehouses.manage (creating/editing warehouse entities) or
   // attributes.*/categories.* (catalog curation, not operational stock data).
   "warehouses.view",
+
+  // Phase 3A — portal access: WAREHOUSE already uses /admin (inventory,
+  // warehouses) today, but never /pos (doesn't sell).
+  "admin.access",
 ];
 
 // Explicit spec: invoices, credit notes, taxes, sales/purchase reports,
@@ -144,6 +158,10 @@ const ACCOUNTANT_PERMISSIONS: Permission[] = [
   "reports.view",
   "reports.view_profit",
   "settings.view",
+
+  // Phase 3A — portal access: ACCOUNTANT already uses /admin (settings,
+  // invoices, reports) today, never /pos.
+  "admin.access",
 ];
 
 export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [

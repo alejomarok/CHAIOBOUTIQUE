@@ -7,3 +7,4 @@ export {
   hasPermission,
 } from "./require-permission";
 export { revokeUserSessions } from "./revoke-user-sessions";
+export { isAuthorizedForPath, resolvePostLoginDestination } from "./post-login-redirect";

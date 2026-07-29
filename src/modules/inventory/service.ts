@@ -9,7 +9,6 @@ import type {
   MovementType,
   Prisma,
 } from "@/generated/prisma/client";
-import { Prisma as PrismaRuntime } from "@/generated/prisma/client";
 
 import {
   DuplicateOperationError,
@@ -19,6 +18,7 @@ import {
   InvalidQuantityError,
   SameWarehouseTransferError,
 } from "./errors";
+import { isIdempotencyKeyConflict } from "./idempotency";
 
 export interface MovementInput {
   variantId: string;
@@ -44,15 +44,6 @@ export interface CreateOperationInput {
 export interface ApplyInventoryOperationResult {
   operation: InventoryOperation;
   movements: InventoryMovement[];
-}
-
-function isIdempotencyKeyConflict(error: unknown): boolean {
-  return (
-    error instanceof PrismaRuntime.PrismaClientKnownRequestError &&
-    error.code === "P2002" &&
-    Array.isArray(error.meta?.target) &&
-    (error.meta.target as string[]).includes("idempotencyKey")
-  );
 }
 
 // The one transaction-aware primitive every inventory write goes through —

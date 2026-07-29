@@ -6,7 +6,12 @@ import { requirePermission } from "@/modules/auth";
 // fast, simple, and usable by staff without technical knowledge — its own
 // layout is built out when the POS module itself is implemented.
 export default async function PosLayout({ children }: { children: React.ReactNode }) {
-  const user = await requirePermission("sales.create");
+  // pos.access (portal access) rather than sales.create (a business
+  // capability) — separates "can enter this portal" from "can perform this
+  // action once inside," the same split admin.access makes for /admin. Both
+  // roles that hold sales.create today (MANAGER, SALES_REPRESENTATIVE) also
+  // hold pos.access, so this changes nothing about who reaches /pos.
+  const user = await requirePermission("pos.access");
 
   return (
     <div className="flex min-h-svh flex-col">

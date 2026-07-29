@@ -50,6 +50,12 @@ model User {
   inventoryOperations  InventoryOperation[]
   importBatches        ImportBatch[]
 
+  // Phase 3 — customer registration back-relations. A staff User never has
+  // either of these; only a public self-registered account does. See
+  // modules/customers/service.ts and ADR-3.
+  customerProfile    CustomerProfile?
+  registrationIntent PublicRegistrationIntent?
+
   @@map("user")
 }
 
@@ -603,4 +609,113 @@ model ImportIssue {
 
   @@index([importBatchId])
   @@map("import_issue")
+}
+
+// =============================================================================
+// Phase 3A — Public customer registration foundation. See DATABASE.md and
+// docs/adr/0003-customer-registration.md.
+//
+// CustomerAddress (multi-address support) is deliberately not part of this
+// checkpoint — it lands in Phase 3C alongside the rest of the self-service
+// account area. This checkpoint is registration + the durable record of what
+// a customer agreed to, nothing more.
+// =============================================================================
+
+enum RegistrationIntentStatus {
+  PENDING
+  COMPLETED
+}
+
+// The durable marker proving a User row originated from the public
+// self-registration flow — written immediately after Better Auth's
+// signUpEmail succeeds, before CustomerProfile/role assignment. Exists
+// specifically so reconciliation (modules/customers/service.ts's
+// reconcileAbandonedRegistrations) can safely repair a customer setup that
+// crashed mid-flow without ever touching a User that got into a zero-role
+// state some other way (e.g. a broken staff-creation call) — "zero roles"
+// alone is never a safe signal that an account should become a customer.
+// See ADR-3.
+model PublicRegistrationIntent {
+  id          String                   @id @default(cuid())
+  userId      String                   @unique
+  status      RegistrationIntentStatus @default(PENDING)
+  createdAt   DateTime                 @default(now())
+  completedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("public_registration_intent")
+}
+
+// One-to-one with User — never duplicates a field User/Better Auth already
+// owns (name, email, emailVerified). termsAcceptedAt/privacyAcceptedAt/
+// termsVersion/privacyVersion/marketingConsent(At) are a read-optimized
+// *projection* of "current consent state" for cheap reads; CustomerConsent
+// below is the actual source of truth / immutable history — see that
+// model's comment and ADR-3.
+model CustomerProfile {
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  customerCode       String    @unique
+  phone              String?
+  documentType       String?
+  documentNumber     String?
+  birthDate          DateTime?
+  marketingConsent   Boolean   @default(false)
+  marketingConsentAt DateTime?
+  termsAcceptedAt    DateTime
+  termsVersion       String
+  privacyAcceptedAt  DateTime
+  privacyVersion     String
+  // Migration readiness, same pattern as Category/Brand/Product — see
+  // DATABASE.md "Migration readiness" for how a future customer import must
+  // handle duplicate/missing/shared legacy emails.
+  legacySource       String?
+  legacyId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // CustomerAddress lands in Phase 3C.
+  consents CustomerConsent[]
+
+  @@unique([legacySource, legacyId])
+  @@map("customer_profile")
+}
+
+enum ConsentType {
+  TERMS_ACCEPTED
+  PRIVACY_ACCEPTED
+  MARKETING_GRANTED
+  MARKETING_REVOKED
+}
+
+// Append-only, same DB-level enforcement as inventory_movement/audit_log —
+// the migration that introduces this table adds a BEFORE UPDATE OR DELETE
+// trigger reusing the existing prevent_update_delete() function (no new
+// trigger function needed; see DATABASE.md "Append-only enforcement"). This
+// is the durable legal/marketing consent record; CustomerProfile's consent
+// fields are a convenience projection kept in sync in the same transaction
+// as every consent-affecting write, never the source of truth themselves.
+model CustomerConsent {
+  id                String      @id @default(cuid())
+  customerProfileId String
+  consentType       ConsentType
+  granted           Boolean
+  policyVersion     String
+  // Free-text label identifying where this consent event came from (e.g.
+  // "public_registration", "account_profile") — not an enum, since this is
+  // an observability/audit detail, not a value the application branches on.
+  source            String
+  occurredAt        DateTime    @default(now())
+  ipAddress         String?
+  userAgent         String?
+  // Never secrets/tokens — same redaction discipline as AuditLog.
+  metadata          Json?
+
+  customerProfile CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Restrict)
+
+  @@index([customerProfileId, consentType])
+  @@map("customer_consent")
 }

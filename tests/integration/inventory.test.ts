@@ -18,13 +18,19 @@ import { createWarehouse } from "@/modules/warehouses/service";
 
 describe("inventory — atomic movements, concurrency, idempotency (real DB)", () => {
   const createdUserIds: string[] = [];
-  const cleanup: Array<() => Promise<unknown>> = [];
 
+  // No per-entity teardown here, deliberately: every test in this file
+  // applies at least one real inventory operation, which means the
+  // category/product/variant/warehouse rows it creates always end up
+  // referenced by inventory_balance/inventory_movement (onDelete: Restrict)
+  // — genuinely undeletable without violating that constraint, not a test
+  // bug to work around. The isolated test database's full reset (run once
+  // per `npm run test:integration` invocation, see
+  // tests/integration/reset-db.ts) is what actually clears this between
+  // runs; deleteTestUser only cleans up what's safe to touch per-test
+  // (session/account/role rows — never the User row itself, see that
+  // fixture's comment).
   afterEach(async () => {
-    while (cleanup.length > 0) {
-      const fn = cleanup.pop();
-      if (fn) await fn();
-    }
     while (createdUserIds.length > 0) {
       const userId = createdUserIds.pop();
       if (userId) await deleteTestUser(userId);
@@ -40,36 +46,29 @@ describe("inventory — atomic movements, concurrency, idempotency (real DB)", (
     createdUserIds.push(actor.id);
 
     const category = await createCategory({ name: `Inv Categoria ${Date.now()}` }, actor.id);
-    cleanup.push(() => prisma.category.delete({ where: { id: category.id } }));
 
     const size = await createSize({ key: `IS-${Date.now()}`, displayName: "S" }, actor.id);
-    cleanup.push(() => prisma.size.delete({ where: { id: size.id } }));
     const color = await createColor({ key: `ic-${Date.now()}`, displayName: "Negro" }, actor.id);
-    cleanup.push(() => prisma.color.delete({ where: { id: color.id } }));
 
     const product = await createProduct(
       { name: `Inv Producto ${Date.now()}`, categoryId: category.id },
       actor.id,
     );
-    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
 
     const [variant] = await createVariants(
       product.id,
       [{ sizeId: size.id, colorId: color.id, sku: `INV-${Date.now()}` }],
       actor.id,
     );
-    cleanup.push(() => prisma.productVariant.delete({ where: { id: variant.id } }));
 
     const warehouseA = await createWarehouse(
       { code: `WA-${Date.now()}`, name: "Depósito A" },
       actor.id,
     );
-    cleanup.push(() => prisma.warehouse.delete({ where: { id: warehouseA.id } }));
     const warehouseB = await createWarehouse(
       { code: `WB-${Date.now()}`, name: "Depósito B" },
       actor.id,
     );
-    cleanup.push(() => prisma.warehouse.delete({ where: { id: warehouseB.id } }));
 
     return { actor, variant, warehouseA, warehouseB };
   }
