@@ -52,7 +52,7 @@ test.describe("public catalog and product detail (real DB, real HTTP)", () => {
 
     const [variant] = await createVariants(
       product.id,
-      [{ sizeId: null, colorId: null, sku: `E2E-SKU-${Date.now()}` }],
+      [{ sizeOptionId: null, colorId: null, sku: `E2E-SKU-${Date.now()}` }],
       actor.id,
     );
     cleanup.push(() => prisma.productVariant.delete({ where: { id: variant.id } }));

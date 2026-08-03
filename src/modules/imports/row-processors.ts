@@ -267,11 +267,36 @@ export async function processVariantRow(
     );
   }
 
-  let sizeId: string | null = null;
-  if (row.sizeKey) {
-    const size = await tx.size.findUnique({ where: { key: row.sizeKey } });
-    if (!size) throw new ImportRowError("SIZE_NOT_FOUND", `sizeKey "${row.sizeKey}" no fue encontrado.`);
-    sizeId = size.id;
+  // Sizes are identified by sizeGroupCode + sizeOptionCode together —
+  // never by a bare code/key alone, since the same code ("40") means a
+  // different thing in different groups (pants vs. footwear). See
+  // row-schemas.ts's variantImportRowSchema (both-or-neither validation)
+  // and required behavior #10.
+  let sizeOptionId: string | null = null;
+  if (row.sizeGroupCode && row.sizeOptionCode) {
+    const sizeGroup = await tx.sizeGroup.findUnique({ where: { code: row.sizeGroupCode } });
+    if (!sizeGroup) {
+      throw new ImportRowError(
+        "SIZE_GROUP_NOT_FOUND",
+        `sizeGroupCode "${row.sizeGroupCode}" no fue encontrado.`,
+      );
+    }
+    const sizeOption = await tx.sizeOption.findUnique({
+      where: { sizeGroupId_code: { sizeGroupId: sizeGroup.id, code: row.sizeOptionCode } },
+    });
+    if (!sizeOption) {
+      throw new ImportRowError(
+        "SIZE_OPTION_NOT_FOUND",
+        `sizeOptionCode "${row.sizeOptionCode}" no fue encontrado en el grupo "${row.sizeGroupCode}".`,
+      );
+    }
+    if (sizeOption.sizeGroupId !== product.sizeGroupId) {
+      throw new ImportRowError(
+        "SIZE_GROUP_MISMATCH",
+        `El talle "${row.sizeOptionCode}" (grupo "${row.sizeGroupCode}") no pertenece al grupo de talles del producto.`,
+      );
+    }
+    sizeOptionId = sizeOption.id;
   }
 
   let colorId: string | null = null;
@@ -292,7 +317,7 @@ export async function processVariantRow(
           await tx.productVariant.update({
             where: { id: existing.id },
             data: {
-              sizeId,
+              sizeOptionId,
               colorId,
               barcode: row.barcode,
               priceAmount: row.priceAmount,
@@ -305,7 +330,7 @@ export async function processVariantRow(
           await tx.productVariant.create({
             data: {
               productId: product.id,
-              sizeId,
+              sizeOptionId,
               colorId,
               sku: row.sku,
               barcode: row.barcode,

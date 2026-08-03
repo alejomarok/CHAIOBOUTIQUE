@@ -56,9 +56,17 @@ const envSchema = z.object({
   INITIAL_ADMIN_EMAIL: optional(z.email()),
   INITIAL_ADMIN_PASSWORD: optional(z.string().min(8)),
 
-  // Email (dev: Mailpit; prod provider deferred, see INTEGRATIONS.md)
+  // Email (dev: Mailpit; prod provider deferred, see INTEGRATIONS.md).
+  // EMAIL_PROVIDER is forward-declared for a future "resend" value — only
+  // "smtp" is implemented this phase (SmtpEmailProvider). SMTP_SECURE/USER/
+  // PASSWORD are optional: Mailpit needs none of them (no TLS, no auth); a
+  // real relay would set all three.
+  EMAIL_PROVIDER: z.enum(["smtp"]).default("smtp"),
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().positive(),
+  SMTP_SECURE: z.preprocess((v) => v === "true", z.boolean()).default(false),
+  SMTP_USER: optional(z.string().min(1)),
+  SMTP_PASSWORD: optional(z.string().min(1)),
   EMAIL_FROM: z.email(),
   RESEND_API_KEY: optional(z.string().min(1)),
 });

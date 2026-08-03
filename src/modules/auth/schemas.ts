@@ -15,6 +15,11 @@ export const forgotPasswordSchema = z.object({
 });
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 
+export const resendVerificationSchema = z.object({
+  email: z.email("Ingresá un email válido"),
+});
+export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
+
 export const resetPasswordSchema = z.object({
   password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
 });

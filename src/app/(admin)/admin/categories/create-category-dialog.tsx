@@ -39,20 +39,23 @@ const formSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio"),
   parentId: z.string().optional(),
   description: z.string().optional(),
+  defaultSizeGroupId: z.string().optional(),
 });
 type FormInput = z.infer<typeof formSchema>;
 
 export function CreateCategoryDialog({
   categories,
+  sizeGroups,
 }: {
   categories: { id: string; name: string }[];
+  sizeGroups: { id: string; name: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<FormInput>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: "", parentId: "", description: "" },
+    defaultValues: { name: "", parentId: "", description: "", defaultSizeGroupId: "" },
   });
 
   async function onSubmit(values: FormInput) {
@@ -62,6 +65,7 @@ export function CreateCategoryDialog({
         name: values.name,
         parentId: values.parentId || undefined,
         description: values.description || undefined,
+        defaultSizeGroupId: values.defaultSizeGroupId || undefined,
       });
       toast.success("Categoría creada.");
       form.reset();
@@ -130,6 +134,33 @@ export function CreateCategoryDialog({
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="defaultSizeGroupId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Grupo de talles por defecto (opcional)</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Sin grupo por defecto" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {sizeGroups.map((sizeGroup) => (
+                        <SelectItem key={sizeGroup.id} value={sizeGroup.id}>
+                          {sizeGroup.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-muted-foreground text-xs">
+                    Se propone automáticamente al crear un producto en esta categoría.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

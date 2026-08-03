@@ -27,7 +27,7 @@ export interface ListPublicProductsFilters {
   search?: string;
   categoryId?: string;
   brandId?: string;
-  sizeId?: string;
+  sizeOptionId?: string;
   colorId?: string;
   sort?: "newest" | "price_asc" | "price_desc";
   take?: number;
@@ -58,8 +58,8 @@ export async function listPublicProducts(filters: ListPublicProductsFilters = {}
       brandId: filters.brandId,
       name: filters.search ? { contains: filters.search, mode: "insensitive" } : undefined,
       variants:
-        filters.sizeId || filters.colorId
-          ? { some: { isActive: true, sizeId: filters.sizeId, colorId: filters.colorId } }
+        filters.sizeOptionId || filters.colorId
+          ? { some: { isActive: true, sizeOptionId: filters.sizeOptionId, colorId: filters.colorId } }
           : undefined,
     },
     include: {
@@ -132,7 +132,7 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
   const product = await prisma.product.findUnique({
     where: { slug },
     include: {
-      variants: { where: { isActive: true }, include: { size: true, color: true } },
+      variants: { where: { isActive: true }, include: { sizeOption: true, color: true } },
       images: { orderBy: { displayOrder: "asc" } },
     },
   });
@@ -183,7 +183,7 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
 
       return {
         id: variant.id,
-        sizeName: variant.size?.displayName ?? null,
+        sizeName: variant.sizeOption?.label ?? null,
         colorName: variant.color?.displayName ?? null,
         priceDisplay: minorUnitsToDisplay(price),
         compareAtPriceDisplay: compareAt !== null ? minorUnitsToDisplay(compareAt) : null,

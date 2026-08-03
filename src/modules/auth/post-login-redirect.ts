@@ -19,13 +19,26 @@ import type { Permission } from "@/modules/permissions/catalog";
 // area doesn't exist until Phase 3C, and redirecting there would 404 every
 // customer login. See isAuthorizedForPath below for the matching guard on
 // an explicit `redirectTo`.
+//
+// A CUSTOMER whose email isn't verified yet lands on /verify-email instead
+// of /catalog — checked by role, same as the CUSTOMER branch itself, never
+// by permission count. Staff roles never carry the CUSTOMER role, so
+// requireEmailVerification staying false (see lib/auth-core.ts) plus this
+// check is what keeps pre-Phase-3B staff accounts (never emailVerified)
+// signing in normally while still steering unverified public customers
+// toward verification. /verify-email renders the same "check your email"
+// state whether the visitor just registered or is an unverified customer
+// returning to log in later — see app/(auth)/verify-email/page.tsx.
 export function resolvePostLoginDestination(user: {
   roles: string[];
   permissions: Set<Permission>;
+  emailVerified: boolean;
 }): string {
   if (user.permissions.has("admin.access")) return "/admin";
   if (user.permissions.has("pos.access")) return "/pos";
-  if (user.roles.includes("CUSTOMER")) return "/catalog";
+  if (user.roles.includes("CUSTOMER")) {
+    return user.emailVerified ? "/catalog" : "/verify-email";
+  }
   return "/";
 }
 

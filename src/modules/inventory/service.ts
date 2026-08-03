@@ -317,7 +317,7 @@ export async function listInventoryBalances(filters: { warehouseId?: string } = 
   return prisma.inventoryBalance.findMany({
     where: { warehouseId: filters.warehouseId },
     include: {
-      variant: { include: { product: true, size: true, color: true } },
+      variant: { include: { product: true, sizeOption: true, color: true } },
       warehouse: true,
     },
     orderBy: { updatedAt: "desc" },

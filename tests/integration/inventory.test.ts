@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { createTestUser, deleteTestUser } from "../fixtures/users";
 import { createCategory } from "@/modules/categories/service";
-import { createColor, createSize } from "@/modules/attributes/service";
+import { createColor, createSizeGroup, createSizeOption } from "@/modules/attributes/service";
 import { DuplicateOperationError, InsufficientStockError } from "@/modules/inventory/errors";
 import {
   adjustInventory,
@@ -47,17 +47,24 @@ describe("inventory — atomic movements, concurrency, idempotency (real DB)", (
 
     const category = await createCategory({ name: `Inv Categoria ${Date.now()}` }, actor.id);
 
-    const size = await createSize({ key: `IS-${Date.now()}`, displayName: "S" }, actor.id);
+    const sizeGroup = await createSizeGroup(
+      { code: `INV-GROUP-${Date.now()}-${Math.random()}`, name: "Inv Grupo" },
+      actor.id,
+    );
+    const size = await createSizeOption(
+      { sizeGroupId: sizeGroup.id, code: "S", label: "S" },
+      actor.id,
+    );
     const color = await createColor({ key: `ic-${Date.now()}`, displayName: "Negro" }, actor.id);
 
     const product = await createProduct(
-      { name: `Inv Producto ${Date.now()}`, categoryId: category.id },
+      { name: `Inv Producto ${Date.now()}`, categoryId: category.id, sizeGroupId: sizeGroup.id },
       actor.id,
     );
 
     const [variant] = await createVariants(
       product.id,
-      [{ sizeId: size.id, colorId: color.id, sku: `INV-${Date.now()}` }],
+      [{ sizeOptionId: size.id, colorId: color.id, sku: `INV-${Date.now()}` }],
       actor.id,
     );
 

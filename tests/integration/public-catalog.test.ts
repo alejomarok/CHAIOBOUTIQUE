@@ -67,7 +67,7 @@ describe("public catalog — never exposes internal fields (real DB)", () => {
 
     const variants = await createVariants(
       product.id,
-      [{ sizeId: null, colorId: null, sku: `PUB-${Date.now()}` }],
+      [{ sizeOptionId: null, colorId: null, sku: `PUB-${Date.now()}` }],
       actor.id,
     );
     cleanup.push(() =>
@@ -97,7 +97,7 @@ describe("public catalog — never exposes internal fields (real DB)", () => {
 
     const variants = await createVariants(
       product.id,
-      [{ sizeId: null, colorId: null, sku: `COST-${Date.now()}` }],
+      [{ sizeOptionId: null, colorId: null, sku: `COST-${Date.now()}` }],
       actor.id,
     );
     cleanup.push(() =>

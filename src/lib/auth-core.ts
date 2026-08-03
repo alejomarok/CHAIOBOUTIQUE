@@ -17,6 +17,13 @@ import { env } from "@/lib/env-core";
 // this config — e.g. prisma/seed.ts, deciding whether the seeded
 // administrator needs emailVerified: true — read the same value the live
 // config uses instead of duplicating it.
+//
+// Deliberately kept false: staff accounts created before Phase 3B (and any
+// created directly via prisma/seed.ts, which never sends a verification
+// email) must keep signing in. Unverified-CUSTOMER handling instead lives
+// entirely in modules/auth/post-login-redirect.ts (redirect to
+// /verify-email) and the CUSTOMER-role check there — never inferred from
+// permission count, and never by locking sign-in itself. See SECURITY.md.
 export const REQUIRE_EMAIL_VERIFICATION = false;
 
 export const auth = betterAuth({
@@ -41,12 +48,49 @@ export const auth = betterAuth({
       await sendPasswordResetEmail({ to: user.email, resetUrl: url });
     },
   },
+  emailVerification: {
+    // `url` is fully built by Better Auth from `baseURL` (server config,
+    // never client input) plus the token and callbackURL WE pass to
+    // sendVerificationEmail (see modules/customers registration action and
+    // verify-email/actions.ts) — always a hardcoded relative path like
+    // "/verify-email?verified=1", never derived from a request. Clicking the
+    // link hits Better Auth's own GET /api/auth/verify-email handler
+    // directly, which verifies the token then redirects to that callbackURL
+    // (appending ?error=CODE on failure) — no client-side token handling of
+    // our own. See docs on BASE_ERROR_CODES for the exact error codes
+    // (TOKEN_EXPIRED, INVALID_TOKEN, USER_NOT_FOUND) surfaced this way.
+    sendVerificationEmail: async ({ user, url }) => {
+      const { sendVerificationEmail } = await import("@/modules/email");
+      await sendVerificationEmail({ to: user.email, verifyUrl: url });
+    },
+    // false: sent explicitly, after CustomerProfile/CUSTOMER-role/consent
+    // rows are committed (see the registration Server Action) — never
+    // racing ahead of account setup, and never sent at all for staff
+    // accounts created outside public registration (e.g. via the admin
+    // panel or prisma/seed.ts), which don't call sendVerificationEmail.
+    sendOnSignUp: false,
+    expiresIn: 60 * 60, // 1 hour
+  },
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
     updateAge: 60 * 60 * 24, // refresh the expiry once per day of activity
   },
   advanced: {
     useSecureCookies: env.NODE_ENV === "production",
+  },
+  // Better Auth's own endpoints only — /sign-in/email is called directly by
+  // LoginForm via authClient (no app-owned Server Action wraps it, so our
+  // own RateLimiter in lib/rate-limiters.ts can't reach it). Registration
+  // and resend-verification DO go through app-owned Server Actions and are
+  // rate-limited there instead, keyed by normalized email + IP (see
+  // lib/rate-limiters.ts) rather than IP alone. `storage` stays at its
+  // "memory" default: not shared across instances, documented as a
+  // pre-production gap in the same place as lib/rate-limit.ts's.
+  rateLimit: {
+    enabled: true,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 10 },
+    },
   },
   user: {
     additionalFields: {

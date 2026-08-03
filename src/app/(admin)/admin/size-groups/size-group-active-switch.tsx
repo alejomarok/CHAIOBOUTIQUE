@@ -5,17 +5,17 @@ import { toast } from "sonner";
 
 import { Switch } from "@/components/ui/switch";
 
-import { toggleSizeActiveAction } from "./actions";
+import { toggleSizeGroupActiveAction } from "./actions";
 
-export function SizeActiveSwitch({ id, isActive }: { id: string; isActive: boolean }) {
+export function SizeGroupActiveSwitch({ id, isActive }: { id: string; isActive: boolean }) {
   const [isPending, startTransition] = useTransition();
 
   function handleChange(checked: boolean) {
     startTransition(async () => {
       try {
-        await toggleSizeActiveAction({ id, isActive: checked });
+        await toggleSizeGroupActiveAction({ id, isActive: checked });
       } catch {
-        toast.error("No pudimos actualizar el talle.");
+        toast.error("No pudimos actualizar el grupo de talles.");
       }
     });
   }

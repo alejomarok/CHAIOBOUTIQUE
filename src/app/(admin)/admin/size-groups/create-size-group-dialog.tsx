@@ -26,37 +26,37 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 
-import { createSizeAction } from "./actions";
+import { createSizeGroupAction } from "./actions";
 
 const formSchema = z.object({
-  key: z.string().min(1, "La clave es obligatoria"),
-  displayName: z.string().min(1, "El nombre es obligatorio"),
-  group: z.string().optional(),
+  code: z.string().min(1, "El código es obligatorio"),
+  name: z.string().min(1, "El nombre es obligatorio"),
+  description: z.string().optional(),
 });
 type FormInput = z.infer<typeof formSchema>;
 
-export function CreateSizeDialog() {
+export function CreateSizeGroupDialog() {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<FormInput>({
     resolver: zodResolver(formSchema),
-    defaultValues: { key: "", displayName: "", group: "" },
+    defaultValues: { code: "", name: "", description: "" },
   });
 
   async function onSubmit(values: FormInput) {
     setIsSubmitting(true);
     try {
-      await createSizeAction({
-        key: values.key,
-        displayName: values.displayName,
-        group: values.group || undefined,
+      await createSizeGroupAction({
+        code: values.code,
+        name: values.name,
+        description: values.description || undefined,
       });
-      toast.success("Talle creado.");
+      toast.success("Grupo de talles creado.");
       form.reset();
       setOpen(false);
     } catch {
-      toast.error("No pudimos crear el talle.");
+      toast.error("No pudimos crear el grupo de talles.");
     } finally {
       setIsSubmitting(false);
     }
@@ -65,22 +65,22 @@ export function CreateSizeDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>Nuevo talle</Button>
+        <Button>Nuevo grupo</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nuevo talle</DialogTitle>
+          <DialogTitle>Nuevo grupo de talles</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
             <FormField
               control={form.control}
-              name="key"
+              name="code"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Clave interna</FormLabel>
+                  <FormLabel>Código interno</FormLabel>
                   <FormControl>
-                    <Input placeholder="S, M, L, 38…" {...field} />
+                    <Input placeholder="TOPS, PANTS, FOOTWEAR…" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -88,12 +88,12 @@ export function CreateSizeDialog() {
             />
             <FormField
               control={form.control}
-              name="displayName"
+              name="name"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Nombre visible</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input placeholder="Remeras, Pantalones, Calzado…" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -101,12 +101,12 @@ export function CreateSizeDialog() {
             />
             <FormField
               control={form.control}
-              name="group"
+              name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Grupo (opcional)</FormLabel>
+                  <FormLabel>Descripción (opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="numeric, letter…" {...field} />
+                    <Input {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -119,7 +119,7 @@ export function CreateSizeDialog() {
                 </Button>
               </DialogClose>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creando…" : "Crear talle"}
+                {isSubmitting ? "Creando…" : "Crear grupo"}
               </Button>
             </DialogFooter>
           </form>

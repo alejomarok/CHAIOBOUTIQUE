@@ -4,7 +4,10 @@ import { isAuthorizedForPath, resolvePostLoginDestination } from "@/modules/auth
 import type { Permission } from "@/modules/permissions/catalog";
 
 function user(roles: string[], ...permissionKeys: Permission[]) {
-  return { roles, permissions: new Set(permissionKeys) };
+  // Defaults to verified so every pre-existing test (written before
+  // emailVerified existed) keeps exercising the same behavior it always
+  // did; the dedicated "unverified CUSTOMER" tests below override it.
+  return { roles, permissions: new Set(permissionKeys), emailVerified: true };
 }
 
 describe("resolvePostLoginDestination", () => {
@@ -27,8 +30,31 @@ describe("resolvePostLoginDestination", () => {
     );
   });
 
-  it("sends a CUSTOMER-role user to /catalog — by role, never by permission count", () => {
+  it("sends a verified CUSTOMER-role user to /catalog — by role, never by permission count", () => {
     expect(resolvePostLoginDestination(user(["CUSTOMER"]))).toBe("/catalog");
+  });
+
+  it("sends an unverified CUSTOMER-role user to /verify-email instead of /catalog", () => {
+    expect(
+      resolvePostLoginDestination({
+        roles: ["CUSTOMER"],
+        permissions: new Set(),
+        emailVerified: false,
+      }),
+    ).toBe("/verify-email");
+  });
+
+  it("never sends an unverified staff account to /verify-email — the policy is CUSTOMER-only", () => {
+    // requireEmailVerification stays false (see lib/auth-core.ts) precisely
+    // so a pre-Phase-3B staff account — never emailVerified, never
+    // CUSTOMER-role — keeps landing on /admin or /pos as usual.
+    expect(
+      resolvePostLoginDestination({
+        roles: ["ADMIN"],
+        permissions: new Set(["admin.access"]),
+        emailVerified: false,
+      }),
+    ).toBe("/admin");
   });
 
   it("sends a user with no roles and no portal-access permissions to / safely", () => {

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { prisma } from "@/lib/db";
 import { createTestUser, deleteTestUser } from "../fixtures/users";
+import { createSizeGroup, createSizeOption } from "@/modules/attributes/service";
 import { ImportBatchNotCancellableError } from "@/modules/imports/errors";
 import { cancelImportBatch, runImport } from "@/modules/imports/service";
 import { getInventoryBalance } from "@/modules/inventory/service";
@@ -115,7 +116,7 @@ describe("imports — CSV pipeline, idempotency, partial failure (real DB)", () 
     );
     const [variant] = await createVariants(
       product.id,
-      [{ sizeId: null, colorId: null, sku: `IMP-SKU-${Date.now()}` }],
+      [{ sizeOptionId: null, colorId: null, sku: `IMP-SKU-${Date.now()}` }],
       actor.id,
     );
     const warehouse = await createWarehouse(
@@ -179,7 +180,7 @@ describe("imports — CSV pipeline, idempotency, partial failure (real DB)", () 
     );
     const [variant] = await createVariants(
       product.id,
-      [{ sizeId: null, colorId: null, sku: `IMP-SKU-B-${Date.now()}` }],
+      [{ sizeOptionId: null, colorId: null, sku: `IMP-SKU-B-${Date.now()}` }],
       actor.id,
     );
     const warehouseA = await createWarehouse(
@@ -261,5 +262,118 @@ describe("imports — CSV pipeline, idempotency, partial failure (real DB)", () 
     await expect(cancelImportBatch(preview.batch.id, actor.id)).rejects.toThrow(
       ImportBatchNotCancellableError,
     );
+  });
+
+  it("VARIANTS import resolves a size deterministically by sizeGroupCode + sizeOptionCode, never by label alone", async () => {
+    const actor = await setupActor();
+    const sourceSystem = `test-src-${Date.now()}`;
+
+    const category = await createCategory({ name: `Imports Talles Categoria ${Date.now()}` }, actor.id);
+    cleanup.push(() => prisma.category.delete({ where: { id: category.id } }));
+    const sizeGroup = await createSizeGroup(
+      { code: `IMPORT-GROUP-${Date.now()}`, name: "Grupo Import" },
+      actor.id,
+    );
+    cleanup.push(() => prisma.sizeGroup.delete({ where: { id: sizeGroup.id } }));
+    const sizeOption = await createSizeOption(
+      { sizeGroupId: sizeGroup.id, code: "M", label: "Mediano" },
+      actor.id,
+    );
+    cleanup.push(() => prisma.sizeOption.delete({ where: { id: sizeOption.id } }));
+
+    const productLegacyId = `PROD-SIZE-${Date.now()}`;
+    const product = await createProduct(
+      {
+        name: `Producto Import Talle ${Date.now()}`,
+        categoryId: category.id,
+        sizeGroupId: sizeGroup.id,
+      },
+      actor.id,
+    );
+    await prisma.product.update({
+      where: { id: product.id },
+      data: { legacySource: sourceSystem, legacyId: productLegacyId },
+    });
+    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
+
+    const sku = `IMPSIZE-${Date.now()}`;
+    const csv =
+      "productLegacyId,sku,barcode,sizeGroupCode,sizeOptionCode,colorKey,priceAmount,compareAtPriceAmount,costAmount\n" +
+      `${productLegacyId},${sku},,${sizeGroup.code},${sizeOption.code},,,,\n`;
+
+    const result = await runImport(
+      {
+        importType: "VARIANTS",
+        sourceSystem,
+        originalFilename: "variantes.csv",
+        fileContents: csv,
+        dryRun: false,
+      },
+      actor.id,
+    );
+    cleanup.push(() => prisma.importBatch.delete({ where: { id: result.batch.id } }));
+
+    expect(result.batch.status).toBe("COMPLETED");
+    expect(result.batch.successfulRows).toBe(1);
+
+    const createdVariant = await prisma.productVariant.findUniqueOrThrow({ where: { sku } });
+    cleanup.push(() => prisma.productVariant.delete({ where: { id: createdVariant.id } }));
+    expect(createdVariant.sizeOptionId).toBe(sizeOption.id);
+  });
+
+  it("VARIANTS import rejects a sizeOptionCode whose group doesn't match the product's size group", async () => {
+    const actor = await setupActor();
+    const sourceSystem = `test-src-${Date.now()}`;
+
+    const productGroup = await createSizeGroup(
+      { code: `IMPORT-PRODGROUP-${Date.now()}`, name: "Grupo del producto" },
+      actor.id,
+    );
+    const otherGroup = await createSizeGroup(
+      { code: `IMPORT-OTHERGROUP-${Date.now()}`, name: "Otro grupo" },
+      actor.id,
+    );
+    cleanup.push(() =>
+      prisma.sizeGroup.deleteMany({ where: { id: { in: [productGroup.id, otherGroup.id] } } }),
+    );
+    const otherOption = await createSizeOption(
+      { sizeGroupId: otherGroup.id, code: "X", label: "X" },
+      actor.id,
+    );
+    cleanup.push(() => prisma.sizeOption.delete({ where: { id: otherOption.id } }));
+
+    const productLegacyId = `PROD-MISMATCH-${Date.now()}`;
+    const product = await createProduct(
+      { name: `Producto Import Mismatch ${Date.now()}`, sizeGroupId: productGroup.id },
+      actor.id,
+    );
+    await prisma.product.update({
+      where: { id: product.id },
+      data: { legacySource: sourceSystem, legacyId: productLegacyId },
+    });
+    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
+
+    const sku = `IMPMISMATCH-${Date.now()}`;
+    const csv =
+      "productLegacyId,sku,barcode,sizeGroupCode,sizeOptionCode,colorKey,priceAmount,compareAtPriceAmount,costAmount\n" +
+      `${productLegacyId},${sku},,${otherGroup.code},${otherOption.code},,,,\n`;
+
+    const result = await runImport(
+      {
+        importType: "VARIANTS",
+        sourceSystem,
+        originalFilename: "variantes-mismatch.csv",
+        fileContents: csv,
+        dryRun: false,
+      },
+      actor.id,
+    );
+    cleanup.push(() => prisma.importBatch.delete({ where: { id: result.batch.id } }));
+
+    expect(result.batch.status).toBe("COMPLETED_WITH_ERRORS");
+    expect(result.issues.some((i) => i.errorCode === "SIZE_GROUP_MISMATCH")).toBe(true);
+
+    const notCreated = await prisma.productVariant.findUnique({ where: { sku } });
+    expect(notCreated).toBeNull();
   });
 });

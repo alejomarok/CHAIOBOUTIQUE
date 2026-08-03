@@ -16,7 +16,7 @@ export default async function InventoryAdjustmentsPage() {
   const [variants, warehouses] = await Promise.all([
     prisma.productVariant.findMany({
       where: { isActive: true },
-      include: { product: true, size: true, color: true },
+      include: { product: true, sizeOption: true, color: true },
       orderBy: { sku: "asc" },
       take: 500,
     }),
@@ -26,7 +26,7 @@ export default async function InventoryAdjustmentsPage() {
   const variantOptions = variants.map((variant) => ({
     id: variant.id,
     label: `${variant.product.name} — ${
-      [variant.size?.displayName, variant.color?.displayName].filter(Boolean).join(" / ") ||
+      [variant.sizeOption?.label, variant.color?.displayName].filter(Boolean).join(" / ") ||
       variant.sku
     }`,
   }));

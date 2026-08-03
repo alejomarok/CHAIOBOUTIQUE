@@ -1,5 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { requirePermission } from "@/modules/auth";
+import { listSizeGroups } from "@/modules/attributes/service";
 import { listBrands } from "@/modules/brands/service";
 import { listCategories } from "@/modules/categories/service";
 
@@ -10,7 +11,11 @@ export const metadata = { title: "Nuevo producto" };
 export default async function NewProductPage() {
   const user = await requirePermission("products.create");
 
-  const [categories, brands] = await Promise.all([listCategories(), listBrands()]);
+  const [categories, brands, sizeGroups] = await Promise.all([
+    listCategories(),
+    listBrands(),
+    listSizeGroups(),
+  ]);
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -25,6 +30,7 @@ export default async function NewProductPage() {
           <ProductForm
             categories={categories.map((c) => ({ id: c.id, name: c.name }))}
             brands={brands.map((b) => ({ id: b.id, name: b.name }))}
+            sizeGroups={sizeGroups.map((g) => ({ id: g.id, name: g.name }))}
             canViewCost={user.permissions.has("products.view_cost")}
           />
         </CardContent>

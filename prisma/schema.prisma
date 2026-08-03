@@ -225,26 +225,34 @@ model AuditLog {
 // =============================================================================
 
 model Category {
-  id           String    @id @default(cuid())
-  name         String
-  slug         String    @unique
-  parentId     String?
-  description  String?
-  displayOrder Int       @default(0)
-  isActive     Boolean   @default(true)
-  archivedAt   DateTime?
-  legacySource String?
-  legacyId     String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  name               String
+  slug               String    @unique
+  parentId           String?
+  description        String?
+  displayOrder       Int       @default(0)
+  isActive           Boolean   @default(true)
+  archivedAt         DateTime?
+  legacySource       String?
+  legacyId           String?
+  // The size group a product created under this category proposes by
+  // default (see modules/products/service.ts's createProduct) — a
+  // suggestion only, never enforced on existing products. SetNull (not
+  // Restrict): losing a stray default-group suggestion is low-stakes,
+  // unlike Product.sizeGroupId itself, which a product's variants may
+  // genuinely depend on.
+  defaultSizeGroupId String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   // Circular-parent prevention is an app-level check in
   // modules/categories/service.ts (walk the ancestor chain before allowing a
   // parentId update) — Postgres has no declarative arbitrary-depth-cycle
   // constraint. Same documented-soft-enforcement posture as Role.isSystem.
-  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: Restrict)
-  children Category[] @relation("CategoryParent")
-  products Product[]
+  parent           Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Category[] @relation("CategoryParent")
+  products         Product[]
+  defaultSizeGroup SizeGroup? @relation(fields: [defaultSizeGroupId], references: [id], onDelete: SetNull)
 
   @@unique([legacySource, legacyId])
   @@map("category")
@@ -269,21 +277,64 @@ model Brand {
   @@map("brand")
 }
 
-model Size {
-  id           String  @id @default(cuid())
-  key          String  @unique
-  displayName  String
-  description  String?
-  displayOrder Int     @default(0)
-  // Plain string, not a lookup table: a low-cardinality display/filter hint
-  // (e.g. "numeric" | "letter"), not something admins manage as its own
-  // entity. Revisit only if it needs its own metadata later.
-  group        String?
-  isActive     Boolean @default(true)
+// A named sizing scheme (e.g. "Tops" -> XS/S/M/L/XL, "Pants" -> 34/36/38/40,
+// "Footwear" -> 35/36/37/38). Replaces the old global `Size` lookup table:
+// the same displayed value ("40") means different things for pants vs.
+// footwear, so uniqueness for a size's identity must be scoped to a group,
+// never global. `code` is the stable, admin-chosen identifier imports use
+// to reference this group (see modules/imports/row-processors.ts) — never
+// the display `name`, which can change without breaking an import mapping.
+model SizeGroup {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  variants ProductVariant[]
+  options              SizeOption[]
+  // Categories that propose this group as the default for products created
+  // under them — see Category.defaultSizeGroupId.
+  defaultForCategories Category[]
+  // Products currently using this group — see Product.sizeGroupId.
+  products             Product[]
 
-  @@map("size")
+  @@map("size_group")
+}
+
+// One concrete size value within a SizeGroup (e.g. "M" within "Tops", "40"
+// within "Pants" — a distinct row from "40" within "Footwear"). `code` is
+// the stable, per-group identifier variant imports use (see
+// modules/imports/row-processors.ts) — a CSV row must supply both the
+// owning group's `code` and this option's `code`, never `label` alone,
+// since `label` is only unique *within* its group, not globally.
+model SizeOption {
+  id              String   @id @default(cuid())
+  sizeGroupId     String
+  code            String
+  label           String
+  // Derived from `label` via the project's normalization policy (see
+  // lib/slug.ts's slugify — NFD-decompose, strip diacritics, lowercase,
+  // trim) at write time in modules/attributes/service.ts. Never accepted
+  // directly from a client; exists purely so a Postgres unique index can
+  // catch "40" / " 40 " / accented near-duplicates colliding within the
+  // same group, the same way Category/Brand/Product separate a human
+  // `name` from a machine-normalized `slug`.
+  normalizedLabel String
+  // Options are ordered for display/matrix generation by this, never by
+  // alphabetizing `label` (which would sort "10" before "9").
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sizeGroup SizeGroup        @relation(fields: [sizeGroupId], references: [id], onDelete: Restrict)
+  variants  ProductVariant[]
+
+  @@unique([sizeGroupId, code])
+  @@unique([sizeGroupId, normalizedLabel])
+  @@map("size_option")
 }
 
 model Color {
@@ -322,6 +373,13 @@ model Product {
   // a categoryId. Reversible — tighten to NOT NULL once data is verified.
   categoryId            String?
   brandId               String?
+  // Nullable: a size-less/one-size product (e.g. most accessories) legally
+  // has no size group at all — see modules/products/service.ts. When set,
+  // copied from Category.defaultSizeGroupId at creation time unless
+  // explicitly overridden by the caller; changing it later is blocked
+  // while the product has a variant whose sizeOptionId belongs to a
+  // different group (see ProductSizeGroupChangeBlockedError).
+  sizeGroupId           String?
   status                ProductStatus @default(DRAFT)
   isFeatured            Boolean       @default(false)
   seoTitle              String?
@@ -342,6 +400,7 @@ model Product {
 
   category  Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   brand     Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  sizeGroup SizeGroup?       @relation(fields: [sizeGroupId], references: [id], onDelete: Restrict)
   createdBy User?            @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy User?            @relation("ProductUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   variants  ProductVariant[]
@@ -357,7 +416,15 @@ model Product {
 model ProductVariant {
   id                   String   @id @default(cuid())
   productId            String
-  sizeId               String?
+  // References SizeOption, never the old global Size table (removed by the
+  // migration that introduces SizeGroup/SizeOption). Must belong to the
+  // product's SizeGroup — enforced in modules/products/service.ts's
+  // createVariants (a plain FK can't express "belongs to the same group as
+  // its parent's current sizeGroupId" without a denormalized composite-FK
+  // scheme; see that file's SizeOptionGroupMismatchError and DATABASE.md,
+  // same documented soft-enforcement posture as Category's
+  // parentId-cycle check).
+  sizeOptionId         String?
   colorId              String?
   sku                  String   @unique
   barcode              String?  @unique
@@ -373,24 +440,25 @@ model ProductVariant {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-  size    Size?   @relation(fields: [sizeId], references: [id], onDelete: Restrict)
-  color   Color?  @relation(fields: [colorId], references: [id], onDelete: Restrict)
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sizeOption SizeOption? @relation(fields: [sizeOptionId], references: [id], onDelete: Restrict)
+  color      Color?      @relation(fields: [colorId], references: [id], onDelete: Restrict)
 
   inventoryMovements InventoryMovement[]
   inventoryBalances  InventoryBalance[]
   images             ProductImage[]
 
-  // Covers the fully-specified case (both sizeId and colorId set). The
-  // default/size-only/color-only cases (where a plain @@unique can't stop
-  // duplicates because Postgres treats any-NULL rows as non-conflicting) are
-  // covered by 3 hand-written partial unique indexes added directly in the
-  // migration SQL — see DATABASE.md "Partial indexes" and the migration file
-  // that introduces this model. Prisma's partialIndexes preview feature
-  // could express these directly in schema.prisma, but is deliberately not
-  // used yet (prisma/prisma#29263 — spurious drop/recreate on every
-  // migration as of Prisma 7.4.1); revisit once that's resolved.
-  @@unique([productId, sizeId, colorId])
+  // Covers the fully-specified case (both sizeOptionId and colorId set).
+  // The default/size-only/color-only cases (where a plain @@unique can't
+  // stop duplicates because Postgres treats any-NULL rows as
+  // non-conflicting) are covered by 3 hand-written partial unique indexes
+  // added directly in the migration SQL — see DATABASE.md "Partial
+  // indexes" and the migration file that introduces this model. Prisma's
+  // partialIndexes preview feature could express these directly in
+  // schema.prisma, but is deliberately not used yet (prisma/prisma#29263 —
+  // spurious drop/recreate on every migration as of Prisma 7.4.1); revisit
+  // once that's resolved.
+  @@unique([productId, sizeOptionId, colorId])
   @@map("product_variant")
 }
 

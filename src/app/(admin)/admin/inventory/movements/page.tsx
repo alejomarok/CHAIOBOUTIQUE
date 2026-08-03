@@ -17,7 +17,7 @@ export default async function InventoryMovementsPage() {
 
   const movements = await prisma.inventoryMovement.findMany({
     include: {
-      variant: { include: { product: true, size: true, color: true } },
+      variant: { include: { product: true, sizeOption: true, color: true } },
       warehouse: true,
       operation: { include: { actor: { select: { name: true } } } },
     },
@@ -57,7 +57,7 @@ export default async function InventoryMovementsPage() {
                   {movement.variant.product.name}
                   <span className="text-muted-foreground ml-1 text-xs">
                     (
-                    {[movement.variant.size?.displayName, movement.variant.color?.displayName]
+                    {[movement.variant.sizeOption?.label, movement.variant.color?.displayName]
                       .filter(Boolean)
                       .join(" / ") || movement.variant.sku}
                     )

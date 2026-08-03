@@ -28,6 +28,12 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { createProductAction, updateProductAction } from "./actions";
 
+// "" (untouched): create -> propose Category.defaultSizeGroupId, update ->
+// leave the current group as-is. "__none__": explicit "no size group".
+// Any other value: an explicit chosen SizeGroup id. See actions.ts's
+// resolveSizeGroupIdInput, the server-side half of this same contract.
+const NO_SIZE_GROUP = "__none__";
+
 const formSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio"),
   internalCode: z.string().optional(),
@@ -35,6 +41,7 @@ const formSchema = z.object({
   description: z.string().optional(),
   categoryId: z.string().optional(),
   brandId: z.string().optional(),
+  sizeGroupId: z.string().optional(),
   seoTitle: z.string().optional(),
   seoDescription: z.string().optional(),
   defaultPriceAmount: z.string().optional(),
@@ -47,6 +54,7 @@ type FormInput = z.infer<typeof formSchema>;
 export interface ProductFormProps {
   categories: { id: string; name: string }[];
   brands: { id: string; name: string }[];
+  sizeGroups: { id: string; name: string }[];
   canViewCost: boolean;
   productId?: string;
   defaultValues?: Partial<FormInput>;
@@ -55,6 +63,7 @@ export interface ProductFormProps {
 export function ProductForm({
   categories,
   brands,
+  sizeGroups,
   canViewCost,
   productId,
   defaultValues,
@@ -71,6 +80,7 @@ export function ProductForm({
       description: "",
       categoryId: "",
       brandId: "",
+      sizeGroupId: "",
       seoTitle: "",
       seoDescription: "",
       defaultPriceAmount: "",
@@ -185,6 +195,35 @@ export function ProductForm({
             )}
           />
         </div>
+        <FormField
+          control={form.control}
+          name="sizeGroupId"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Grupo de talles</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Proponer según la categoría" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value={NO_SIZE_GROUP}>Sin grupo de talles</SelectItem>
+                  {sizeGroups.map((sizeGroup) => (
+                    <SelectItem key={sizeGroup.id} value={sizeGroup.id}>
+                      {sizeGroup.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-muted-foreground text-xs">
+                Define qué talles se pueden usar al generar variantes. Si no elegís uno, se
+                propone el de la categoría.
+              </p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <FormField
           control={form.control}
           name="shortDescription"

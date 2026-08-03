@@ -29,6 +29,20 @@ const moneyField = z
     }
   });
 
+// "" (unset/placeholder — the client never sends this deliberately, only
+// as the field's default/untouched state): create -> propose from
+// Category.defaultSizeGroupId, update -> leave the current value
+// untouched. "__none__": an explicit "no size group" override. Anything
+// else: an explicit chosen SizeGroup id. See
+// modules/products/service.ts's CreateProductInput/UpdateProductInput for
+// the same three-state contract at the service layer.
+const NO_SIZE_GROUP = "__none__";
+
+function resolveSizeGroupIdInput(value: string | undefined): string | null | undefined {
+  if (value === NO_SIZE_GROUP) return null;
+  return value || undefined;
+}
+
 const productFieldsSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio"),
   internalCode: z.string().optional(),
@@ -36,6 +50,7 @@ const productFieldsSchema = z.object({
   description: z.string().optional(),
   categoryId: z.string().optional(),
   brandId: z.string().optional(),
+  sizeGroupId: z.string().optional(),
   seoTitle: z.string().optional(),
   seoDescription: z.string().optional(),
   defaultPriceAmount: moneyField,
@@ -61,6 +76,7 @@ export async function createProductAction(input: z.input<typeof productFieldsSch
       description: data.description || null,
       categoryId: data.categoryId || null,
       brandId: data.brandId || null,
+      sizeGroupId: resolveSizeGroupIdInput(data.sizeGroupId),
       seoTitle: data.seoTitle || null,
       seoDescription: data.seoDescription || null,
       defaultPriceAmount: data.defaultPriceAmount,
@@ -89,6 +105,7 @@ export async function updateProductAction(id: string, input: z.input<typeof prod
       description: data.description || null,
       categoryId: data.categoryId || null,
       brandId: data.brandId || null,
+      sizeGroupId: resolveSizeGroupIdInput(data.sizeGroupId),
       seoTitle: data.seoTitle || null,
       seoDescription: data.seoDescription || null,
       defaultPriceAmount: data.defaultPriceAmount,
@@ -122,7 +139,7 @@ const createVariantsSchema = z.object({
   productId: z.string().min(1),
   variants: z.array(
     z.object({
-      sizeId: z.string().nullable(),
+      sizeOptionId: z.string().nullable(),
       colorId: z.string().nullable(),
       sku: z.string().min(1, "El SKU es obligatorio"),
       barcode: z.string().optional(),
@@ -141,7 +158,7 @@ export async function createVariantsAction(input: z.input<typeof createVariantsS
   await createVariants(
     data.productId,
     data.variants.map((variant) => ({
-      sizeId: variant.sizeId,
+      sizeOptionId: variant.sizeOptionId,
       colorId: variant.colorId,
       sku: variant.sku,
       barcode: variant.barcode || null,

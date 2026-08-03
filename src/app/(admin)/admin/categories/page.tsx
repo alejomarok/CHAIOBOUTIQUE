@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requirePermission } from "@/modules/auth";
+import { listSizeGroups } from "@/modules/attributes/service";
 import { listCategories } from "@/modules/categories/service";
 
 import { CategoryRowActions } from "./category-row-actions";
@@ -19,7 +20,7 @@ export default async function CategoriesPage() {
   const user = await requirePermission("categories.view");
   const canManage = user.permissions.has("categories.manage");
 
-  const categories = await listCategories();
+  const [categories, sizeGroups] = await Promise.all([listCategories(), listSizeGroups()]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -31,7 +32,10 @@ export default async function CategoriesPage() {
           </p>
         </div>
         {canManage && (
-          <CreateCategoryDialog categories={categories.map((c) => ({ id: c.id, name: c.name }))} />
+          <CreateCategoryDialog
+            categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+            sizeGroups={sizeGroups.map((g) => ({ id: g.id, name: g.name }))}
+          />
         )}
       </div>
       <div className="border-border overflow-hidden rounded-xl border">

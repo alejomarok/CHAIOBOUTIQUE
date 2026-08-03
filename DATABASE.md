@@ -78,28 +78,54 @@ timezone. No fiscal fields — those are explicitly deferred to their own review
 catalog/inventory phase — by a database-level trigger too (see "Append-only enforcement" below).
 See [SECURITY.md](./SECURITY.md#audit-logging) for what must never be written here.
 
-### Catalog core (Category, Brand, Size, Color, Product, ProductVariant, ProductImage)
+### Catalog core (Category, Brand, SizeGroup, SizeOption, Color, Product, ProductVariant, ProductImage)
 
 - `Category` — self-referencing `parentId` (cycle prevention is an app-level check in
   `modules/categories/service.ts`; Postgres has no declarative arbitrary-depth-cycle
   constraint), `slug` (unique), soft-archived via `archivedAt`/`isActive` rather than deleted
   (a category referenced by a product is also protected at the DB level:
   `Product.category` is `onDelete: Restrict`). `legacySource`/`legacyId` (compound unique,
-  nullable) support the import pipeline below.
-- `Brand`, `Size`, `Color` — straightforward lookup tables. `Size`/`Color` have a `key` (stable,
-  human-chosen identifier used by variant imports — e.g. `"m"`, `"azul"`) separate from `id`.
+  nullable) support the import pipeline below. `defaultSizeGroupId` (nullable, `onDelete:
+  SetNull`) is the `SizeGroup` a product created under this category proposes by default — a
+  suggestion only, read once at product-creation time (see `Product.sizeGroupId` below), never
+  re-applied to existing products.
+- `Brand`, `Color` — straightforward lookup tables. `Color` has a `key` (stable, human-chosen
+  identifier used by variant imports — e.g. `"azul"`) separate from `id`.
+- `SizeGroup`/`SizeOption` — replace an earlier global `Size` lookup table (removed by the
+  migration that introduces these two models). A single flat size list can't express that the
+  same displayed value means different things in different categories — pants "40" and
+  footwear "40" are unrelated sizes. `SizeGroup` is a named sizing scheme (e.g. "Pantalones" ->
+  34/36/38/40); `SizeOption` is one concrete value within exactly one group, with `code`
+  (imports; unique *within* its group, `@@unique([sizeGroupId, code])`) and `label` (display;
+  also unique within its group via a separate `normalizedLabel` column —
+  `@@unique([sizeGroupId, normalizedLabel])` — normalized with the same policy as `slug`
+  columns, see `lib/slug.ts`'s `slugify()`, computed in `modules/attributes/service.ts` and
+  never accepted directly from a client). `sortOrder` (not alphabetical — a plain string sort
+  would put "10" before "9") drives both admin listing and variant-matrix generation order.
 - `Product` — `status` (`DRAFT`/`ACTIVE`/`INACTIVE`/`ARCHIVED`), `categoryId`/`brandId` nullable
   (a product can exist in `DRAFT` before categorization; `status` can never become `ACTIVE`
   without a `categoryId` — enforced in `modules/products/service.ts`'s `setProductStatus`, not
-  just at read time). Monetary columns (`defaultPriceAmount`, `compareAtPriceAmount`,
-  `referenceCostAmount`) are `BigInt` minor units — see
+  just at read time). `sizeGroupId` (nullable, `onDelete: Restrict`) — a size-less/one-size
+  product (most accessories) legitimately has none. At creation, `undefined` copies
+  `Category.defaultSizeGroupId`, `null` is an explicit "no size group" override, and a string is
+  an explicit chosen group (`modules/products/service.ts`'s `createProduct`); at update, the
+  group only ever changes when explicitly requested, and is blocked
+  (`ProductSizeGroupChangeBlockedError`) while any variant's `sizeOptionId` still belongs to a
+  different group — see `updateProduct`. Monetary columns (`defaultPriceAmount`,
+  `compareAtPriceAmount`, `referenceCostAmount`) are `BigInt` minor units — see
   [ADR-1](./docs/adr/0001-monetary-strategy.md). `legacySource`/`legacyId` compound-unique, same
   as `Category`/`Brand`.
 - `ProductVariant` — `sku`/`barcode` unique, `priceAmount`/`compareAtPriceAmount`/`costAmount`
   nullable `BigInt` (null `priceAmount` falls back to `Product.defaultPriceAmount` — see
-  `modules/products/pricing.ts`'s `getEffectivePrice`). Uniqueness on `(productId, sizeId,
+  `modules/products/pricing.ts`'s `getEffectivePrice`). Uniqueness on `(productId, sizeOptionId,
   colorId)` only covers the fully-specified case; see "Partial indexes" below for the null-axis
-  cases (a product's single default variant, or one variant per size with no color, etc.).
+  cases (a product's single default variant, or one variant per size with no color, etc.). A
+  `SizeOption` used by a variant must belong to the product's current `SizeGroup` —
+  `modules/products/service.ts`'s `createVariants` is the authoritative check
+  (`SizeOptionGroupMismatchError`); a plain FK can't express "and belongs to the same group as
+  its parent's current sizeGroupId" without a denormalized composite-FK scheme whose ongoing
+  sync burden isn't proportionate here, so — like `Category`'s `parentId`-cycle check — this one
+  invariant stays service-layer-only, not a database constraint.
 - `ProductImage` — `bucket`/`path`/`contentType`/`fileSize`/`width`/`height` (metadata only, the
   binary lives in Supabase Storage — see [INTEGRATIONS.md](./INTEGRATIONS.md)), `isPrimary`
   (exactly one per product — see "Partial indexes" below).
@@ -189,14 +215,17 @@ apply — see "Migrations" below):
 ```sql
 -- ProductVariant: at most one "default" (no size, no color), one per size
 -- with no color, and one per color with no size. The fully-specified case
--- (both set) is covered by the normal @@unique([productId, sizeId, colorId])
--- declared directly in schema.prisma.
+-- (both set) is covered by the normal
+-- @@unique([productId, sizeOptionId, colorId]) declared directly in
+-- schema.prisma. Column renamed from "sizeId" to "sizeOptionId" by the
+-- migration that introduces SizeGroup/SizeOption (see that migration's
+-- comment for why it's a RENAME, not a drop+recreate).
 CREATE UNIQUE INDEX product_variant_no_axis_unique
-  ON product_variant("productId") WHERE "sizeId" IS NULL AND "colorId" IS NULL;
+  ON product_variant("productId") WHERE "sizeOptionId" IS NULL AND "colorId" IS NULL;
 CREATE UNIQUE INDEX product_variant_size_only_unique
-  ON product_variant("productId", "sizeId") WHERE "sizeId" IS NOT NULL AND "colorId" IS NULL;
+  ON product_variant("productId", "sizeOptionId") WHERE "sizeOptionId" IS NOT NULL AND "colorId" IS NULL;
 CREATE UNIQUE INDEX product_variant_color_only_unique
-  ON product_variant("productId", "colorId") WHERE "colorId" IS NOT NULL AND "sizeId" IS NULL;
+  ON product_variant("productId", "colorId") WHERE "colorId" IS NOT NULL AND "sizeOptionId" IS NULL;
 
 -- Warehouse: exactly one default.
 CREATE UNIQUE INDEX warehouse_default_unique
@@ -295,6 +324,74 @@ npm run db:test:migrate           # same migration, against TEST_DATABASE_URL
 
 Prisma 7 no longer runs `prisma generate` automatically after `migrate dev`/`db push` — run
 `npm run prisma:generate` explicitly after schema changes.
+
+## Size-groups migration — legacy data policy
+
+`prisma/migrations/20260729181641_size_groups_category_aware_sizing` migrates every existing
+`size` row into a new `size_group`/`size_option` pair (see the model comments in
+`schema.prisma`). Two of its own `RAISE EXCEPTION` guards can abort the migration before it
+changes anything: a `displayName` that normalizes to a blank label, or two `displayName`s that
+normalize to the same label (both would otherwise violate — or silently evade —
+`size_option`'s `@@unique([sizeGroupId, normalizedLabel])`). **Neither guard is worked around by
+this project automatically** — every flagged row is resolved by a human, deliberately, never by
+an auto-merge or auto-delete script.
+
+**Before running the migration against any database**, run the read-only preflight report:
+
+```bash
+npm run preflight:size-groups          # against whatever DATABASE_URL/DIRECT_URL currently point at
+node scripts/with-test-db.mjs npx tsx scripts/preflight-size-groups-migration.ts   # against TEST_DATABASE_URL
+```
+
+It lists every row with a blank/invalid normalized label, every group of rows that collide on
+the same normalized label, and every product/variant that currently references a flagged row —
+enough context to decide, per row, whether to rename a `displayName` or (only if the rows are
+genuinely the same size) consolidate them onto one before removing the others. It makes no
+changes itself.
+
+**What we found running it against the shared Docker test database** (documented here as the
+concrete precedent for how to read its output, not because this is expected to recur): all 8
+existing `size` rows normalized to `"s"`. Every one had `key` matching the pattern
+`IS-<timestamp>` and `displayName` exactly `"S"`, each referenced by exactly one
+`product_variant` with `sku` matching `INV-<timestamp>`, on a product named `Inv Producto
+<timestamp>` — an exact match for `tests/integration/inventory.test.ts`'s
+`setupVariantAndWarehouses()` fixture helper (before it was rewritten to use
+`createSizeGroup`/`createSizeOption`), left over from a past `test:integration` run. Nothing
+about the rows (uniform defaults, fixture-shaped ids/timestamps, zero real product data) suggested
+genuine legacy business data — this is exactly the kind of disposable residue
+`resetTestDatabase()` exists to clear.
+
+That distinction is the actual policy:
+
+- **The disposable Docker test database never holds data worth preserving.** If the preflight
+  script flags anything there, the correct fix is to **recreate the database from an empty
+  baseline**, not to hand-edit the flagged rows — `docker compose down -v && docker compose up
+  -d` (or equivalent — drop and recreate just the `chaioboutique_test` database), then
+  `npm run db:test:migrate` applies all migrations, including this one, against a database with
+  no legacy `size` rows at all, so neither guard has anything to trip on. This is also exactly
+  why `tests/migrations/` (below) never depends on the shared database's migration state: it
+  proves the migration's logic in an isolated schema, independent of whatever the shared
+  database's current, possibly-mid-repair state is.
+- **Supabase (dev/prod) may hold genuine legacy data.** Run the preflight script against it
+  first (read-only, safe), and resolve every flagged row by hand — rename a `displayName` to
+  disambiguate it, or, only after confirming with whoever owns the catalog data that two rows
+  really are duplicates, consolidate them onto a single `size` row (updating any
+  `product_variant.sizeId` that pointed at the one being removed) before re-running the
+  preflight script to confirm it's clear. Never run an automated merge/delete against Supabase
+  based on this script's output alone.
+
+### Isolated migration tests (`tests/migrations/`)
+
+`tests/integration/`'s `global-setup.ts` truncates and reseeds the shared `public` schema, which
+requires every table — including ones a still-pending migration hasn't created yet — to already
+exist; it cannot run before this migration is applied to `public`. `tests/migrations/` is a
+separate suite (`vitest.migrations.config.ts`, `npm run test:migrations`) specifically for
+proving a migration's data-preserving SQL: each test builds its own uniquely-named, throwaway
+Postgres schema shaped like the pre-migration tables, runs the real `migration.sql` file (read
+from disk, unmodified) against just that schema via `SET search_path`, asserts the result, and
+drops the schema in `afterEach` — pass or fail. It never touches the shared `public` schema or
+`_prisma_migrations`, so it runs correctly regardless of `public`'s own migration state
+(including a `failed` one — see `prisma migrate status`).
 
 ## Seed strategy
 

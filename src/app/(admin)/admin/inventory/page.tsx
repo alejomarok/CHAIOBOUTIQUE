@@ -56,7 +56,7 @@ export default async function InventoryPage() {
                 <TableCell className="font-medium">{balance.variant.product.name}</TableCell>
                 <TableCell className="font-mono text-xs">{balance.variant.sku}</TableCell>
                 <TableCell>
-                  {[balance.variant.size?.displayName, balance.variant.color?.displayName]
+                  {[balance.variant.sizeOption?.label, balance.variant.color?.displayName]
                     .filter(Boolean)
                     .join(" / ") || "—"}
                 </TableCell>

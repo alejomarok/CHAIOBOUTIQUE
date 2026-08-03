@@ -44,8 +44,8 @@ export function RegisterForm() {
     setIsSubmitting(true);
     try {
       await registerCustomerAction(values);
-      toast.success("Cuenta creada. Ya podés iniciar sesión.");
-      router.push("/login");
+      toast.success("Cuenta creada. Confirmá tu email para activarla.");
+      router.push("/verify-email");
     } catch {
       // Generic on purpose — never confirm/deny whether an email is already
       // registered, same discipline as the login/forgot-password forms.

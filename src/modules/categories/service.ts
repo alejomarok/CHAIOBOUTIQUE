@@ -54,6 +54,9 @@ export interface CreateCategoryInput {
   parentId?: string | null;
   description?: string | null;
   displayOrder?: number;
+  // The size group products created under this category propose by
+  // default — see modules/products/service.ts's createProduct.
+  defaultSizeGroupId?: string | null;
 }
 
 export async function createCategory(input: CreateCategoryInput, actorId: string) {
@@ -69,6 +72,7 @@ export async function createCategory(input: CreateCategoryInput, actorId: string
       parentId: input.parentId ?? null,
       description: input.description ?? null,
       displayOrder: input.displayOrder ?? 0,
+      defaultSizeGroupId: input.defaultSizeGroupId ?? null,
     },
   });
 
@@ -89,6 +93,7 @@ export interface UpdateCategoryInput {
   description?: string | null;
   displayOrder?: number;
   isActive?: boolean;
+  defaultSizeGroupId?: string | null;
 }
 
 export async function updateCategory(id: string, input: UpdateCategoryInput, actorId: string) {

@@ -49,7 +49,12 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     permission: "categories.view",
   },
   { href: "/admin/brands", label: "Marcas", iconName: "shield-check", permission: "brands.view" },
-  { href: "/admin/sizes", label: "Talles", iconName: "ruler", permission: "attributes.view" },
+  {
+    href: "/admin/size-groups",
+    label: "Grupos de talles",
+    iconName: "ruler",
+    permission: "attributes.view",
+  },
   { href: "/admin/colors", label: "Colores", iconName: "palette", permission: "attributes.view" },
   {
     href: "/admin/warehouses",

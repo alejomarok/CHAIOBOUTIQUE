@@ -14,10 +14,12 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
+    "preflight:size-groups": "tsx scripts/preflight-size-groups-migration.ts",
     "db:test:migrate": "node scripts/with-test-db.mjs prisma migrate deploy",
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
     "test:integration": "node scripts/with-test-db.mjs vitest run --config vitest.integration.config.ts",
+    "test:migrations": "node scripts/with-test-db.mjs vitest run --config vitest.migrations.config.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

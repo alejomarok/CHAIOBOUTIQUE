@@ -4,6 +4,8 @@ import { headers } from "next/headers";
 import type { z } from "zod";
 
 import { auth } from "@/lib/auth";
+import { registrationRateLimiter, buildRateLimitKey } from "@/lib/rate-limiters";
+import { VERIFY_EMAIL_CALLBACK_URL } from "@/modules/auth/verification";
 import { registerSchema } from "@/modules/auth/schemas";
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@/modules/customers/legal";
 import {
@@ -19,6 +21,21 @@ import {
 export async function registerCustomerAction(input: z.input<typeof registerSchema>) {
   const data = registerSchema.parse(input);
 
+  const requestHeaders = await headers();
+  const ipAddress = requestHeaders.get("x-forwarded-for");
+
+  // 1. Rate limit before any account is created — keyed by normalized email
+  // + IP + action, never a secret. RegisterForm shows the same generic
+  // failure toast for this as for any other registration error, so this
+  // never confirms/denies anything about the email itself. See
+  // lib/rate-limiters.ts.
+  const rateLimitResult = await registrationRateLimiter.check(
+    buildRateLimitKey("register", data.email, ipAddress),
+  );
+  if (!rateLimitResult.success) {
+    throw new Error("Demasiados intentos de registro. Intentá de nuevo más tarde.");
+  }
+
   // 2. Create the Better Auth user. Only name/email/password ever reach
   // this call — termsAccepted/privacyAccepted/marketingConsent are never
   // forwarded to Better Auth's own user-creation payload, and Better Auth
@@ -31,8 +48,6 @@ export async function registerCustomerAction(input: z.input<typeof registerSchem
   // 3. Durable registration marker, written as close to step 2 as possible
   // — see modules/customers/service.ts's documented crash-window reasoning.
   await createRegistrationIntent(result.user.id);
-
-  const requestHeaders = await headers();
 
   // 4-6. CustomerProfile + CUSTOMER role + the initial consent ledger rows
   // + audit, atomically. Legal document versions are server-controlled
@@ -49,9 +64,21 @@ export async function registerCustomerAction(input: z.input<typeof registerSchem
 
   await completeRegistrationIntent(result.user.id);
 
-  // Email verification (Better Auth's requireEmailVerification, and the
-  // explicit post-setup sendVerificationEmail call) is Phase 3B — not wired
-  // yet. A freshly registered account can sign in immediately, same as
-  // every staff account today.
+  // 7. Sent explicitly, only now that the account is fully set up — never
+  // via emailVerification.sendOnSignUp (see lib/auth-core.ts), which would
+  // fire inside step 2, before CustomerProfile/CUSTOMER role/consent rows
+  // exist. callbackURL is the fixed, server-controlled constant above —
+  // never derived from client input.
+  try {
+    await auth.api.sendVerificationEmail({
+      body: { email: data.email, callbackURL: VERIFY_EMAIL_CALLBACK_URL },
+    });
+  } catch (error) {
+    // 8. Never roll back or duplicate the account on a delivery failure —
+    // it stays exactly as-is: correctly configured, unverified. The
+    // customer can retry from the resend-verification form.
+    console.error("Verification email delivery failed after account setup.", error);
+  }
+
   return { status: "registered" as const };
 }

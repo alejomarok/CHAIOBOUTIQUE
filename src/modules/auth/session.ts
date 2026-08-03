@@ -11,6 +11,7 @@ export interface CurrentUser {
   id: string;
   name: string;
   email: string;
+  emailVerified: boolean;
   roles: string[];
   permissions: Set<Permission>;
 }
@@ -37,6 +38,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     id: user.id,
     name: user.name,
     email: user.email,
+    emailVerified: user.emailVerified,
     roles,
     permissions,
   };

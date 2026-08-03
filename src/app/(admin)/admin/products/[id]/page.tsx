@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/modules/auth";
-import { listSizes, listColors } from "@/modules/attributes/service";
+import { listSizeOptions, listColors } from "@/modules/attributes/service";
 import { getProductImagePublicUrl } from "@/modules/products/product-images";
 import { getProductById } from "@/modules/products/service";
 
@@ -27,12 +27,14 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const user = await requirePermission("products.view");
   const { id } = await params;
 
-  const [product, sizes, colors] = await Promise.all([
-    getProductById(id),
-    listSizes(),
-    listColors(),
-  ]);
+  const [product, colors] = await Promise.all([getProductById(id), listColors()]);
   if (!product) notFound();
+
+  // Required behavior #3: the variant matrix only ever offers options from
+  // the product's own SizeGroup, never the full catalog — a size-less
+  // product (no sizeGroupId) gets an empty list, not every size that
+  // exists anywhere.
+  const sizeOptions = product.sizeGroupId ? await listSizeOptions(product.sizeGroupId) : [];
 
   const canViewCost = user.permissions.has("products.view_cost");
   const canEdit = user.permissions.has("products.edit");
@@ -49,6 +51,11 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             </Badge>
             {product.category && (
               <span className="text-muted-foreground text-sm">{product.category.name}</span>
+            )}
+            {product.sizeGroup && (
+              <span className="text-muted-foreground text-sm">
+                Talles: {product.sizeGroup.name}
+              </span>
             )}
           </div>
         </div>
@@ -131,13 +138,14 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         <CardContent>
           <VariantManager
             productId={product.id}
-            sizes={sizes.map((s) => ({ id: s.id, displayName: s.displayName }))}
+            hasSizeGroup={product.sizeGroupId !== null}
+            sizeOptions={sizeOptions.map((s) => ({ id: s.id, label: s.label }))}
             colors={colors.map((c) => ({ id: c.id, displayName: c.displayName }))}
             existingVariants={product.variants.map((v) => ({
               id: v.id,
               sku: v.sku,
               isActive: v.isActive,
-              sizeName: v.size?.displayName ?? null,
+              sizeName: v.sizeOption?.label ?? null,
               colorName: v.color?.displayName ?? null,
             }))}
             canManage={canEdit}

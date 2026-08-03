@@ -84,16 +84,27 @@ export const productImportRowSchema = z.object({
 });
 export type ProductImportRow = z.infer<typeof productImportRowSchema>;
 
-export const variantImportRowSchema = z.object({
-  productLegacyId: requiredText("productLegacyId"),
-  sku: requiredText("sku"),
-  barcode: optionalText(),
-  sizeKey: optionalText(),
-  colorKey: optionalText(),
-  priceAmount: optionalMoney(),
-  compareAtPriceAmount: optionalMoney(),
-  costAmount: optionalMoney(),
-});
+// Sizes are identified by sizeGroupCode + sizeOptionCode together, never by
+// a single flat key and never by the displayed label — the same code
+// ("40") means different things in different groups (pants vs. footwear),
+// so a size reference is only unambiguous with both parts. Required
+// behavior #10 in the size-groups hardening checkpoint.
+export const variantImportRowSchema = z
+  .object({
+    productLegacyId: requiredText("productLegacyId"),
+    sku: requiredText("sku"),
+    barcode: optionalText(),
+    sizeGroupCode: optionalText(),
+    sizeOptionCode: optionalText(),
+    colorKey: optionalText(),
+    priceAmount: optionalMoney(),
+    compareAtPriceAmount: optionalMoney(),
+    costAmount: optionalMoney(),
+  })
+  .refine((row) => Boolean(row.sizeGroupCode) === Boolean(row.sizeOptionCode), {
+    message: "sizeGroupCode y sizeOptionCode deben aparecer juntos, o ninguno de los dos.",
+    path: ["sizeOptionCode"],
+  });
 export type VariantImportRow = z.infer<typeof variantImportRowSchema>;
 
 export const initialStockImportRowSchema = z.object({
@@ -142,7 +153,8 @@ export const IMPORT_TEMPLATE_HEADERS: Record<keyof typeof IMPORT_ROW_SCHEMAS, st
     "productLegacyId",
     "sku",
     "barcode",
-    "sizeKey",
+    "sizeGroupCode",
+    "sizeOptionCode",
     "colorKey",
     "priceAmount",
     "compareAtPriceAmount",

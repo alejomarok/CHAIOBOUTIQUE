@@ -103,7 +103,7 @@ describe("RegisterForm", () => {
     expect(registerCustomerActionMock).not.toHaveBeenCalled();
   });
 
-  it("calls the expected Server Action with the form values and redirects to /login on success", async () => {
+  it("calls the expected Server Action with the form values and redirects to /verify-email on success", async () => {
     registerCustomerActionMock.mockResolvedValue({ status: "registered" });
     render(<RegisterForm />);
 
@@ -123,7 +123,10 @@ describe("RegisterForm", () => {
         }),
       ),
     );
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    // Not /login: a freshly registered account still needs to confirm its
+    // email — see modules/auth/post-login-redirect.ts and
+    // app/(auth)/verify-email/page.tsx.
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/verify-email"));
   });
 
   it("shows a generic error and does not navigate when the Server Action throws", async () => {

@@ -4,6 +4,7 @@ import {
   forgotPasswordSchema,
   loginSchema,
   registerSchema,
+  resendVerificationSchema,
   resetPasswordSchema,
 } from "@/modules/auth/schemas";
 
@@ -35,6 +36,18 @@ describe("resetPasswordSchema", () => {
   it("requires at least 8 characters", () => {
     expect(resetPasswordSchema.safeParse({ password: "short" }).success).toBe(false);
     expect(resetPasswordSchema.safeParse({ password: "longenough" }).success).toBe(true);
+  });
+});
+
+describe("resendVerificationSchema", () => {
+  it("accepts a well-formed email", () => {
+    expect(resendVerificationSchema.safeParse({ email: "clienta@test.local" }).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects a malformed email", () => {
+    expect(resendVerificationSchema.safeParse({ email: "nope" }).success).toBe(false);
   });
 });
 
