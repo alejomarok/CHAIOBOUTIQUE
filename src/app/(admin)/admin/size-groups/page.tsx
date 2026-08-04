@@ -1,6 +1,8 @@
+import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -33,7 +35,11 @@ export default async function SizeGroupsPage() {
             &ldquo;40&rdquo; en Calzado son talles distintos.
           </p>
         </div>
-        {canManage && <CreateSizeGroupDialog />}
+        {canManage && (
+          <CreateSizeGroupDialog
+            existingGroups={sizeGroups.map((g) => ({ code: g.code, name: g.name }))}
+          />
+        )}
       </div>
       <div className="border-border overflow-hidden rounded-xl border">
         <Table>
@@ -44,6 +50,7 @@ export default async function SizeGroupsPage() {
               <TableHead>Talles</TableHead>
               <TableHead>Productos</TableHead>
               {canManage && <TableHead className="w-20">Activo</TableHead>}
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -67,8 +74,23 @@ export default async function SizeGroupsPage() {
                     <SizeGroupActiveSwitch id={sizeGroup.id} isActive={sizeGroup.isActive} />
                   </TableCell>
                 )}
+                <TableCell>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/admin/size-groups/${sizeGroup.id}`}>
+                      Gestionar talles
+                      <ChevronRight className="size-4" />
+                    </Link>
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
+            {sizeGroups.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={canManage ? 6 : 5} className="text-muted-foreground text-sm">
+                  Todavía no hay grupos de talles.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>

@@ -130,6 +130,47 @@ See [SECURITY.md](./SECURITY.md#audit-logging) for what must never be written he
   binary lives in Supabase Storage — see [INTEGRATIONS.md](./INTEGRATIONS.md)), `isPrimary`
   (exactly one per product — see "Partial indexes" below).
 
+### Public visibility — exactly when a product appears on `/catalog` / `/product/[slug]`
+
+The single source of truth is `modules/products/visibility.ts`'s `getVisibilityBlockers()`
+(`isPubliclyVisible()` is just "that list is empty") — both public routes call it via
+`modules/products/public-queries.ts`, never a second, drifted copy of the rule. A product is
+publicly visible only when **all four** hold:
+
+1. `status` is `ACTIVE` — `DRAFT` (the default for every newly created product),
+   `INACTIVE`, and `ARCHIVED` are never shown. A brand-new product is a `DRAFT` until an admin
+   with `products.publish` explicitly clicks "Publicar" (`setProductStatusAction`) — creating a
+   product is never itself enough.
+2. It has a `categoryId`.
+3. It has **at least one `isActive` `ProductVariant`** — a freshly created product has *zero*
+   variants until the admin generates them (see the "Variantes" section of the product detail
+   page); "Publicar" is blocked with a clear error (`ProductNotReadyForPublicationError`) until
+   this is true.
+4. Every active variant resolves to a positive effective price (its own `priceAmount`, or the
+   product's `defaultPriceAmount` as a fallback — `modules/products/pricing.ts`).
+
+**Deliberately not a condition: having an image.** A valid, active, correctly-priced product
+with zero `ProductImage` rows is still fully visible — the storefront renders a local placeholder
+(`components/catalog/product-image.tsx`) instead of hiding the product. Likewise, stock is never
+a visibility gate: an out-of-stock variant still shows on `/catalog` and `/product/[slug]`, just
+with `stockStatus: "OUT_OF_STOCK"` (see `getPublicProductBySlug`) — publication and inventory are
+independent concerns by design (a store that ran out of an already-published item should still
+show it, not silently vanish).
+
+The admin product detail page (`/admin/products/[id]`) surfaces this list directly — a "Visibilidad
+pública" panel shows the same yes/no answer and, when the answer is no, the exact blockers from
+this same function, so an admin never has to guess why a product they just created isn't on the
+storefront.
+
+**Cache invalidation**: `/catalog` reads `searchParams`, which forces it to render dynamically on
+every request in this project's (non-Cache-Components) caching model — it was never actually
+served stale from Next's Full Route Cache. `/product/[slug]` has no such dynamic API and is a
+plausible static-caching candidate, so every mutation that can change public output
+(`setProductStatusAction`, `updateProductAction`, `createVariantsAction`,
+`deactivateVariantAction`, the three image actions) calls `revalidatePath("/catalog")` and, where
+the slug is already in hand, `revalidatePath(`/product/${slug}`)` too — defense in depth even on
+routes that don't strictly need it, cheap and always correct to call.
+
 ### Inventory core (Warehouse, InventoryBalance, InventoryOperation, InventoryMovement)
 
 Full design rationale in [ADR-2](./docs/adr/0002-inventory-balance-projection.md). Summary:

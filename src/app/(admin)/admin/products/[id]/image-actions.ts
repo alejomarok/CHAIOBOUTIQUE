@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/modules/auth";
 import {
   deleteProductImage,
+  reorderProductImage,
   setPrimaryImage,
   uploadProductImage,
 } from "@/modules/products/product-images";
@@ -32,16 +33,32 @@ export async function uploadProductImageAction(productId: string, formData: Form
   );
 
   revalidatePath(`/admin/products/${productId}`);
+  // Never a visibility condition (see DATABASE.md), but the primary image
+  // is public-facing on both /catalog and /product/[slug] the moment a
+  // product is already published.
+  revalidatePath("/catalog");
 }
 
 export async function deleteProductImageAction(input: { imageId: string; productId: string }) {
   const actor = await requirePermission("product_images.manage");
   await deleteProductImage(input.imageId, actor.id);
   revalidatePath(`/admin/products/${input.productId}`);
+  revalidatePath("/catalog");
 }
 
 export async function setPrimaryImageAction(input: { imageId: string; productId: string }) {
   const actor = await requirePermission("product_images.manage");
   await setPrimaryImage(input.imageId, actor.id);
+  revalidatePath(`/admin/products/${input.productId}`);
+  revalidatePath("/catalog");
+}
+
+export async function reorderProductImageAction(input: {
+  imageId: string;
+  productId: string;
+  direction: "up" | "down";
+}) {
+  const actor = await requirePermission("product_images.manage");
+  await reorderProductImage(input.imageId, input.direction, actor.id);
   revalidatePath(`/admin/products/${input.productId}`);
 }

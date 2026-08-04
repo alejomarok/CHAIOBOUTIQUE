@@ -26,51 +26,71 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 
-import { createSizeOptionAction } from "../actions";
+import { updateSizeOptionAction } from "../actions";
 
 const formSchema = z.object({
   code: z.string().min(1, "El código es obligatorio"),
   label: z.string().min(1, "El nombre visible es obligatorio"),
-  sortOrder: z.string().optional(),
+  sortOrder: z.string().min(1, "El orden es obligatorio"),
 });
 type FormInput = z.infer<typeof formSchema>;
 
-export function CreateSizeOptionDialog({ sizeGroupId }: { sizeGroupId: string }) {
+export function EditSizeOptionDialog({
+  sizeGroupId,
+  option,
+}: {
+  sizeGroupId: string;
+  option: { id: string; code: string; label: string; sortOrder: number };
+}) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<FormInput>({
     resolver: zodResolver(formSchema),
-    defaultValues: { code: "", label: "", sortOrder: "" },
+    defaultValues: {
+      code: option.code,
+      label: option.label,
+      sortOrder: String(option.sortOrder),
+    },
   });
 
   async function onSubmit(values: FormInput) {
     setIsSubmitting(true);
     try {
-      await createSizeOptionAction({
+      await updateSizeOptionAction({
+        id: option.id,
         sizeGroupId,
         code: values.code,
         label: values.label,
-        sortOrder: values.sortOrder ? Number(values.sortOrder) : undefined,
+        sortOrder: Number(values.sortOrder),
       });
-      toast.success("Talle creado.");
-      form.reset();
+      toast.success("Talle actualizado.");
       setOpen(false);
     } catch {
-      toast.error("No pudimos crear el talle. Verificá que el código y el nombre no estén repetidos.");
+      toast.error("No pudimos actualizar el talle. Verificá que el código y el nombre no estén repetidos.");
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) {
+          form.reset({ code: option.code, label: option.label, sortOrder: String(option.sortOrder) });
+        }
+      }}
+    >
       <DialogTrigger asChild>
-        <Button>Nuevo talle</Button>
+        <Button variant="ghost" size="sm">
+          Editar
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nuevo talle</DialogTitle>
+          <DialogTitle>Editar talle</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
@@ -79,7 +99,7 @@ export function CreateSizeOptionDialog({ sizeGroupId }: { sizeGroupId: string })
               name="code"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Código</FormLabel>
+                  <FormLabel>Código interno</FormLabel>
                   <FormControl>
                     <Input placeholder="36, S, M, XL…" {...field} />
                   </FormControl>
@@ -105,9 +125,9 @@ export function CreateSizeOptionDialog({ sizeGroupId }: { sizeGroupId: string })
               name="sortOrder"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Orden (opcional)</FormLabel>
+                  <FormLabel>Orden</FormLabel>
                   <FormControl>
-                    <Input type="number" step={1} placeholder="0" {...field} />
+                    <Input type="number" step={1} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -120,7 +140,7 @@ export function CreateSizeOptionDialog({ sizeGroupId }: { sizeGroupId: string })
                 </Button>
               </DialogClose>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creando…" : "Crear talle"}
+                {isSubmitting ? "Guardando…" : "Guardar cambios"}
               </Button>
             </DialogFooter>
           </form>

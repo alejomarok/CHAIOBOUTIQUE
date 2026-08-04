@@ -19,7 +19,51 @@ export async function getSizeGroupById(id: string) {
     where: { id },
     include: {
       options: { orderBy: [{ sortOrder: "asc" }, { label: "asc" }] },
+      _count: { select: { products: true } },
     },
+  });
+}
+
+// SizeGroup is never hard-deleted while anything still depends on it —
+// same "soft enforcement backed by an explicit check, not just the DB
+// error" posture as everywhere else in this codebase. Two independent
+// reasons a delete can be rejected:
+//   - products currently use it (the actual business rule requested);
+//   - it still has SizeOption rows (SizeOption.sizeGroup is
+//     onDelete: Restrict, so the DB would reject the delete anyway — this
+//     check exists purely to turn that into a clear message instead of a
+//     raw FK-violation error).
+export class SizeGroupInUseError extends Error {
+  constructor() {
+    super("No se puede eliminar el grupo: hay productos que lo usan.");
+    this.name = "SizeGroupInUseError";
+  }
+}
+
+export class SizeGroupHasOptionsError extends Error {
+  constructor() {
+    super("No se puede eliminar el grupo: todavía tiene talles. Eliminalos primero.");
+    this.name = "SizeGroupHasOptionsError";
+  }
+}
+
+export async function deleteSizeGroup(id: string, actorId: string): Promise<void> {
+  const sizeGroup = await prisma.sizeGroup.findUniqueOrThrow({
+    where: { id },
+    include: { _count: { select: { products: true, options: true } } },
+  });
+
+  if (sizeGroup._count.products > 0) throw new SizeGroupInUseError();
+  if (sizeGroup._count.options > 0) throw new SizeGroupHasOptionsError();
+
+  await prisma.sizeGroup.delete({ where: { id } });
+
+  await recordAuditLog({
+    userId: actorId,
+    action: "size_group.deleted",
+    entityType: "SizeGroup",
+    entityId: id,
+    previousValue: { code: sizeGroup.code, name: sizeGroup.name },
   });
 }
 
@@ -117,6 +161,7 @@ export async function createSizeOption(input: CreateSizeOptionInput, actorId: st
 }
 
 export interface UpdateSizeOptionInput {
+  code?: string;
   label?: string;
   sortOrder?: number;
   isActive?: boolean;
@@ -126,6 +171,7 @@ export async function updateSizeOption(id: string, input: UpdateSizeOptionInput,
   const sizeOption = await prisma.sizeOption.update({
     where: { id },
     data: {
+      ...(input.code !== undefined ? { code: input.code } : {}),
       ...(input.label !== undefined
         ? { label: input.label, normalizedLabel: slugify(input.label) }
         : {}),

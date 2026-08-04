@@ -6,8 +6,16 @@
 // invoicing entities are explicitly out of scope for this phase.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  // Forces CJS output ("import.meta.url" is unsupported ESM syntax
+  // otherwise emitted by default). Playwright's config/test loader compiles
+  // plain ".ts" files through a synchronous, CJS-`require()`-compatible
+  // transform (this project has no "type": "module" in package.json) — the
+  // default ESM-flavored client is fundamentally incompatible with that,
+  // regardless of which of our own files import it. See the E2E
+  // infrastructure stabilization checkpoint's notes in tests/e2e/.
+  moduleFormat = "cjs"
 }
 
 datasource db {

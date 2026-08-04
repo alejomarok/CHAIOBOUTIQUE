@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import "../integration/guard";
 
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/db-core";
 
 import { ADMIN_FIXTURE, RESTRICTED_FIXTURE } from "./fixture-credentials";
 
@@ -35,12 +35,15 @@ test.describe("admin CSV import — real HTTP round trip", () => {
     });
 
     await page.getByRole("button", { name: "Vista previa" }).click();
-    await expect(page.getByText("1 de 1 filas válidas")).toBeVisible();
+    // exact: true — a toast also shows overlapping text ("Vista previa
+    // lista: 1 de 1 filas válidas."), which a non-exact match would also
+    // hit, tripping Playwright's strict-mode multiple-elements check.
+    await expect(page.getByText("1 de 1 filas válidas", { exact: true })).toBeVisible();
 
     const executeButton = page.getByRole("button", { name: "Confirmar e importar" });
     await expect(executeButton).toBeEnabled();
     await executeButton.click();
-    await expect(page.getByText("1 de 1 filas válidas")).toBeVisible();
+    await expect(page.getByText("1 de 1 filas válidas", { exact: true })).toBeVisible();
 
     // The batch shows up in the history table with a completed status.
     await expect(page.getByText("Completado", { exact: true }).first()).toBeVisible();
@@ -54,7 +57,10 @@ test.describe("admin CSV import — real HTTP round trip", () => {
     page,
   }) => {
     await login(page, RESTRICTED_FIXTURE);
-    const response = await page.goto("/admin/imports/products");
-    expect(response?.status()).toBe(403);
+    // The rendered content (app/forbidden.tsx) is the reliable, actually-
+    // enforced signal — see login.spec.ts's note re: authInterrupts
+    // (experimental) not currently setting a non-200 HTTP status here.
+    await page.goto("/admin/imports/products");
+    await expect(page.getByText("No tenés permiso para ver esta página")).toBeVisible();
   });
 });

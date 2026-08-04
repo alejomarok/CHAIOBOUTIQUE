@@ -2,12 +2,12 @@ import { expect, test } from "@playwright/test";
 
 import "../integration/guard";
 
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/db-core";
 import { createTestUser, deleteTestUser } from "../fixtures/users";
-import { createCategory } from "@/modules/categories/service";
-import { adjustInventory } from "@/modules/inventory/service";
-import { createProduct, createVariants, setProductStatus } from "@/modules/products/service";
-import { createWarehouse, setDefaultWarehouse } from "@/modules/warehouses/service";
+import { createCategory } from "@/modules/categories/service-core";
+import { adjustInventory } from "@/modules/inventory/service-core";
+import { createProduct, createVariants, setProductStatus } from "@/modules/products/service-core";
+import { createWarehouse, setDefaultWarehouse } from "@/modules/warehouses/service-core";
 
 // Real end-to-end proof that the public/admin boundary in
 // modules/products/public-queries.ts actually holds over HTTP, not just in
@@ -40,23 +40,34 @@ test.describe("public catalog and product detail (real DB, real HTTP)", () => {
     });
     createdUserIds.push(actor.id);
 
+    // This category/product/variant are never torn down in this test's own
+    // cleanup either, for the same reason as the warehouse below: once a
+    // real inventory movement/balance references the variant, Category →
+    // Product → ProductVariant are all `onDelete: Restrict`, so none of
+    // them can be deleted anymore regardless of ordering. Left for
+    // global-teardown.ts's full-suite reset, same as the warehouse.
     const category = await createCategory({ name: `E2E Categoria ${Date.now()}` }, actor.id);
-    cleanup.push(() => prisma.category.delete({ where: { id: category.id } }));
 
     const uniqueName = `Remera E2E ${Date.now()}`;
     const product = await createProduct(
       { name: uniqueName, categoryId: category.id, defaultPriceAmount: 1500000n },
       actor.id,
     );
-    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
 
     const [variant] = await createVariants(
       product.id,
       [{ sizeOptionId: null, colorId: null, sku: `E2E-SKU-${Date.now()}` }],
       actor.id,
     );
-    cleanup.push(() => prisma.productVariant.delete({ where: { id: variant.id } }));
 
+    // Never torn down in this test's own cleanup: once real inventory
+    // movements/balances reference this warehouse, deleting it is
+    // impossible anyway (inventory_movement has a real, DB-level append-
+    // only trigger — see tests/integration/reset-db.ts's doc comment — so
+    // even clearing inventory_balance first wouldn't make a warehouse
+    // delete succeed). Treated the same as the ADMIN/RESTRICTED/CUSTOMER
+    // fixture users: reasonable shared test infrastructure for the run,
+    // wiped only by the full-suite reset in global-teardown.ts.
     const existingDefault = await prisma.warehouse.findFirst({ where: { isDefault: true } });
     let warehouseId = existingDefault?.id;
     if (!warehouseId) {
@@ -65,7 +76,6 @@ test.describe("public catalog and product detail (real DB, real HTTP)", () => {
         actor.id,
       );
       warehouseId = created.id;
-      cleanup.push(() => prisma.warehouse.delete({ where: { id: created.id } }));
       await setDefaultWarehouse(created.id, actor.id);
     }
 
@@ -106,8 +116,16 @@ test.describe("public catalog and product detail (real DB, real HTTP)", () => {
     );
     cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
 
-    const response = await page.goto(`/product/${product.slug}`);
-    expect(response?.status()).toBe(404);
+    // The rendered content (next/navigation's notFound()) is the reliable,
+    // actually-enforced signal here, not the HTTP status code — this
+    // specific Next.js version/dev-server combination renders the correct
+    // "Página no encontrada" content but does not set a real 404 status
+    // (confirmed independently of authInterrupts: the same pattern shows up
+    // for forbidden()/unauthorized() in login.spec.ts/imports.spec.ts, and
+    // notFound() is a long-stable, non-experimental API, so this isn't
+    // specific to that experimental feature).
+    await page.goto(`/product/${product.slug}`);
+    await expect(page.getByRole("heading", { name: "Página no encontrada" })).toBeVisible();
 
     await page.goto(`/catalog?q=${encodeURIComponent(uniqueName)}`);
     await expect(page.getByText(uniqueName)).not.toBeVisible();

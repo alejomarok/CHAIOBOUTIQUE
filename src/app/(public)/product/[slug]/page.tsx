@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 
+import { ProductImage } from "@/components/catalog/product-image";
 import { ProductVariantSelector } from "@/components/catalog/product-variant-selector";
 import { getPublicProductBySlug } from "@/modules/products/public-queries";
 
@@ -32,20 +32,13 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
     <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-2">
       <div>
         <div className="bg-muted relative aspect-square overflow-hidden rounded-xl">
-          {primaryImage ? (
-            <Image
-              src={primaryImage.url}
-              alt={primaryImage.altText ?? product.name}
-              fill
-              sizes="(min-width: 768px) 50vw, 100vw"
-              className="object-cover"
-              priority
-            />
-          ) : (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              Sin imagen
-            </div>
-          )}
+          <ProductImage
+            src={primaryImage?.url ?? null}
+            alt={primaryImage?.altText ?? product.name}
+            sizes="(min-width: 768px) 50vw, 100vw"
+            className="object-cover"
+            priority
+          />
         </div>
         {secondaryImages.length > 0 && (
           <div className="mt-4 grid grid-cols-4 gap-2">
@@ -54,10 +47,9 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
                 key={image.url}
                 className="bg-muted relative aspect-square overflow-hidden rounded-lg"
               >
-                <Image
+                <ProductImage
                   src={image.url}
                   alt={image.altText ?? product.name}
-                  fill
                   sizes="120px"
                   className="object-cover"
                 />

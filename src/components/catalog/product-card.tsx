@@ -1,25 +1,18 @@
-import Image from "next/image";
 import Link from "next/link";
 
+import { ProductImage } from "@/components/catalog/product-image";
 import type { PublicProductCardDTO } from "@/modules/products/public-queries";
 
 export function ProductCard({ product }: { product: PublicProductCardDTO }) {
   return (
     <Link href={`/product/${product.slug}`} className="group flex flex-col gap-2">
       <div className="bg-muted relative aspect-[3/4] overflow-hidden rounded-xl">
-        {product.primaryImageUrl ? (
-          <Image
-            src={product.primaryImageUrl}
-            alt={product.name}
-            fill
-            sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
-            className="object-cover transition-transform group-hover:scale-105"
-          />
-        ) : (
-          <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-            Sin imagen
-          </div>
-        )}
+        <ProductImage
+          src={product.primaryImageUrl}
+          alt={product.name}
+          sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+          className="object-cover transition-transform group-hover:scale-105"
+        />
       </div>
       <div>
         <p className="text-sm font-medium">{product.name}</p>

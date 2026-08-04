@@ -96,7 +96,7 @@ export async function updateProductAction(id: string, input: z.input<typeof prod
   const data = productFieldsSchema.parse(input);
   const canSetCost = actor.permissions.has("products.view_cost");
 
-  await updateProduct(
+  const product = await updateProduct(
     id,
     {
       name: data.name,
@@ -118,6 +118,10 @@ export async function updateProductAction(id: string, input: z.input<typeof prod
 
   revalidatePath(`/admin/products/${id}`);
   revalidatePath(`/admin/products/${id}/edit`);
+  // A previously-published product can change name/price/category here —
+  // all of it public-facing. See DATABASE.md "Public visibility".
+  revalidatePath("/catalog");
+  revalidatePath(`/product/${product.slug}`);
 }
 
 const statusSchema = z.object({
@@ -130,9 +134,18 @@ export async function setProductStatusAction(input: z.infer<typeof statusSchema>
     input.status === "ARCHIVED" ? "products.archive" : "products.publish",
   );
   const data = statusSchema.parse(input);
-  await setProductStatus(data.id, data.status, actor.id);
+  const product = await setProductStatus(data.id, data.status, actor.id);
   revalidatePath(`/admin/products/${data.id}`);
   revalidatePath("/admin/products");
+  // This is the mutation that most directly flips public visibility
+  // (DRAFT/INACTIVE/ARCHIVED <-> ACTIVE) — see DATABASE.md "Public
+  // visibility". /catalog is dynamically rendered per-request (it reads
+  // searchParams) so this is defense in depth, not the only thing making
+  // a status change show up; /product/[slug] has no such dynamic API and
+  // is the one that actually needs this to avoid serving a stale cached
+  // response.
+  revalidatePath("/catalog");
+  revalidatePath(`/product/${product.slug}`);
 }
 
 const createVariantsSchema = z.object({
@@ -170,10 +183,16 @@ export async function createVariantsAction(input: z.input<typeof createVariantsS
   );
 
   revalidatePath(`/admin/products/${data.productId}`);
+  // A product can already be ACTIVE when new variants are added to it
+  // (e.g. restocking a new size) — see DATABASE.md "Public visibility".
+  revalidatePath("/catalog");
 }
 
 export async function deactivateVariantAction(input: { variantId: string; productId: string }) {
   const actor = await requirePermission("products.edit");
   await deactivateVariant(input.variantId, actor.id);
   revalidatePath(`/admin/products/${input.productId}`);
+  // Deactivating a product's only remaining variant can flip its public
+  // visibility off — see DATABASE.md "Public visibility".
+  revalidatePath("/catalog");
 }

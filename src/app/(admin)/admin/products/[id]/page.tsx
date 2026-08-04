@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/modules/auth";
 import { listSizeOptions, listColors } from "@/modules/attributes/service";
+import { getTotalStockForVariants } from "@/modules/inventory/service";
 import { getProductImagePublicUrl } from "@/modules/products/product-images";
 import { getProductById } from "@/modules/products/service";
+import { getVisibilityBlockers } from "@/modules/products/visibility";
 
 import { ProductImagesManager } from "./product-images-manager";
 import { ProductStatusActions } from "./product-status-actions";
@@ -35,6 +37,14 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   // product (no sizeGroupId) gets an empty list, not every size that
   // exists anywhere.
   const sizeOptions = product.sizeGroupId ? await listSizeOptions(product.sizeGroupId) : [];
+
+  const activeVariants = product.variants.filter((v) => v.isActive);
+  const totalStock = await getTotalStockForVariants(activeVariants.map((v) => v.id));
+  // See DATABASE.md "Public visibility" — this is the exact, single rule
+  // both /catalog and /product/[slug] use, surfaced here so an admin never
+  // has to guess why a product isn't showing up publicly.
+  const visibilityBlockers = getVisibilityBlockers(product, product.variants);
+  const isPubliclyVisible = visibilityBlockers.length === 0;
 
   const canViewCost = user.permissions.has("products.view_cost");
   const canEdit = user.permissions.has("products.edit");
@@ -73,6 +83,54 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           />
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Visibilidad pública</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Badge variant={isPubliclyVisible ? "default" : "outline"}>
+              {isPubliclyVisible ? "Visible en la tienda" : "No visible en la tienda"}
+            </Badge>
+            {isPubliclyVisible && (
+              <Link
+                href={`/product/${product.slug}`}
+                target="_blank"
+                className="text-muted-foreground text-xs hover:underline"
+              >
+                Ver en la tienda ↗
+              </Link>
+            )}
+          </div>
+          {!isPubliclyVisible && (
+            <div className="border-border bg-muted/40 rounded-lg border p-3">
+              <p className="mb-1.5 text-sm font-medium">Por qué no aparece en /catalog:</p>
+              <ul className="text-muted-foreground list-inside list-disc text-sm">
+                {visibilityBlockers.map((blocker) => (
+                  <li key={blocker.code}>{blocker.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-muted-foreground text-xs">Variantes activas</p>
+              <p>
+                {activeVariants.length} de {product.variants.length}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Stock total</p>
+              <p>{totalStock} unidades</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Imágenes</p>
+              <p>{product.images.length}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -56,6 +56,14 @@ const envSchema = z.object({
   INITIAL_ADMIN_EMAIL: optional(z.email()),
   INITIAL_ADMIN_PASSWORD: optional(z.string().min(8)),
 
+  // E2E testing only — never set this in a real dev/production .env. Only
+  // playwright.config.ts's webServer.env sets it to "true", which switches
+  // modules/storage's getStorageProvider() to an in-memory, locally-served
+  // provider instead of real Supabase Storage (see modules/storage/
+  // e2e-provider.ts) — the e2e suite must never upload into the real
+  // product-images bucket.
+  E2E_TEST_MODE: z.preprocess((v) => v === "true", z.boolean()).default(false),
+
   // Email (dev: Mailpit; prod provider deferred, see INTEGRATIONS.md).
   // EMAIL_PROVIDER is forward-declared for a future "resend" value — only
   // "smtp" is implemented this phase (SmtpEmailProvider). SMTP_SECURE/USER/

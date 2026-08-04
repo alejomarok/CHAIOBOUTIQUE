@@ -13,6 +13,8 @@ import { getSizeGroupById } from "@/modules/attributes/service";
 import { requirePermission } from "@/modules/auth";
 
 import { CreateSizeOptionDialog } from "./create-size-option-dialog";
+import { DeleteSizeGroupButton } from "./delete-size-group-button";
+import { EditSizeOptionDialog } from "./edit-size-option-dialog";
 import { SizeOptionActiveSwitch } from "./size-option-active-switch";
 
 export const metadata = { title: "Detalle de grupo de talles" };
@@ -31,7 +33,7 @@ export default async function SizeGroupDetailPage({
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-heading text-2xl font-semibold">{sizeGroup.name}</h1>
           <p className="text-muted-foreground text-sm">
@@ -42,8 +44,24 @@ export default async function SizeGroupDetailPage({
               </Badge>
             )}
           </p>
+          <p className="text-muted-foreground text-sm">
+            {sizeGroup._count.products === 0
+              ? "Ningún producto usa este grupo todavía."
+              : sizeGroup._count.products === 1
+                ? "1 producto usa este grupo."
+                : `${sizeGroup._count.products} productos usan este grupo.`}
+          </p>
         </div>
-        {canManage && <CreateSizeOptionDialog sizeGroupId={sizeGroup.id} />}
+        {canManage && (
+          <div className="flex flex-col items-end gap-2">
+            <CreateSizeOptionDialog sizeGroupId={sizeGroup.id} />
+            <DeleteSizeGroupButton
+              sizeGroupId={sizeGroup.id}
+              productCount={sizeGroup._count.products}
+              optionCount={sizeGroup.options.length}
+            />
+          </div>
+        )}
       </div>
       <div className="border-border overflow-hidden rounded-xl border">
         <Table>
@@ -53,6 +71,7 @@ export default async function SizeGroupDetailPage({
               <TableHead>Código</TableHead>
               <TableHead>Nombre visible</TableHead>
               {canManage && <TableHead className="w-20">Activo</TableHead>}
+              {canManage && <TableHead className="w-16" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -70,11 +89,16 @@ export default async function SizeGroupDetailPage({
                     />
                   </TableCell>
                 )}
+                {canManage && (
+                  <TableCell>
+                    <EditSizeOptionDialog sizeGroupId={sizeGroup.id} option={option} />
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             {sizeGroup.options.length === 0 && (
               <TableRow>
-                <TableCell colSpan={canManage ? 4 : 3} className="text-muted-foreground text-sm">
+                <TableCell colSpan={canManage ? 5 : 3} className="text-muted-foreground text-sm">
                   Este grupo todavía no tiene talles.
                 </TableCell>
               </TableRow>

@@ -94,6 +94,10 @@ export async function uploadProductImage(input: UploadProductImageInput, actorId
         height: dimensions.height,
         altText: input.altText ?? null,
         isPrimary: existingCount === 0,
+        // Each new image gets the next slot — without this, every image
+        // would share the schema default (0) and "reorder" would have
+        // nothing meaningful to swap. See reorderProductImage below.
+        displayOrder: existingCount,
         createdById: actorId,
       },
     });
@@ -166,6 +170,47 @@ export async function setPrimaryImage(imageId: string, actorId: string) {
   });
 
   return updated;
+}
+
+// Swaps this image's displayOrder with its immediate neighbor (by current
+// display order) in the given direction — a no-op, not an error, if
+// already at that edge (first image asked to move up, last asked to move
+// down). Same "swap the two affected rows in one transaction" shape as
+// setPrimaryImage/setDefaultWarehouse elsewhere in this codebase.
+export async function reorderProductImage(
+  imageId: string,
+  direction: "up" | "down",
+  actorId: string,
+): Promise<void> {
+  const image = await prisma.productImage.findUniqueOrThrow({ where: { id: imageId } });
+  const siblings = await prisma.productImage.findMany({
+    where: { productId: image.productId },
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  const index = siblings.findIndex((sibling) => sibling.id === imageId);
+  const neighborIndex = direction === "up" ? index - 1 : index + 1;
+  if (neighborIndex < 0 || neighborIndex >= siblings.length) return;
+
+  const neighbor = siblings[neighborIndex];
+  await prisma.$transaction([
+    prisma.productImage.update({
+      where: { id: image.id },
+      data: { displayOrder: neighbor.displayOrder },
+    }),
+    prisma.productImage.update({
+      where: { id: neighbor.id },
+      data: { displayOrder: image.displayOrder },
+    }),
+  ]);
+
+  await recordAuditLog({
+    userId: actorId,
+    action: "product_image.reordered",
+    entityType: "Product",
+    entityId: image.productId,
+    newValue: { imageId, direction },
+  });
 }
 
 // Uploads and commits the new image before removing the old one, per the

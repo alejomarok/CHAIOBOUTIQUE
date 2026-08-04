@@ -74,7 +74,15 @@ const ALL_APPLICATION_TABLES = [
 // repo's docker-compose.yml provisions — host, port, AND database name all
 // have to match. Any mismatch throws instead of proceeding; there is no
 // override flag, deliberately.
-function assertSafeToResetTestDatabase(): void {
+//
+// Exported so it's the single implementation of "is this unambiguously the
+// local Docker test database" — playwright.config.ts and
+// tests/e2e/global-setup.ts reuse this exact function (never a second,
+// hand-rolled copy) as their own fail-closed pre-flight check, before
+// running migrations or touching anything. Never logs credentials or the
+// full connection string — the thrown message below only ever includes
+// host/port/database name.
+export function assertSafeToResetTestDatabase(): void {
   const testUrl = process.env.TEST_DATABASE_URL;
   const activeUrl = process.env.DATABASE_URL;
 

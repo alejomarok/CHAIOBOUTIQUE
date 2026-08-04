@@ -1,6 +1,9 @@
 import "server-only";
 
+import { env } from "@/lib/env";
+
 import type { StorageProvider } from "./provider";
+import { E2EStorageProvider } from "./e2e-provider";
 import { SupabaseStorageProvider } from "./supabase-provider";
 
 export type { StorageProvider, UploadInput, StoredObject } from "./provider";
@@ -16,7 +19,13 @@ let provider: StorageProvider | null = null;
 
 export function getStorageProvider(): StorageProvider {
   if (!provider) {
-    provider = new SupabaseStorageProvider();
+    // env.E2E_TEST_MODE is validated, server-only config (env-core.ts) —
+    // only ever set to "true" by playwright.config.ts's webServer.env, never
+    // in a real dev/production .env. This is the one place storage
+    // selection happens; choosing it here (not in app code that calls
+    // uploadProductImage) keeps the real product-images Supabase bucket
+    // completely untouched by the e2e suite.
+    provider = env.E2E_TEST_MODE ? new E2EStorageProvider() : new SupabaseStorageProvider();
   }
   return provider;
 }

@@ -1,12 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const pushMock = vi.fn();
+const replaceMock = vi.fn();
 const refreshMock = vi.fn();
 let searchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock, refresh: refreshMock }),
+  useRouter: () => ({ replace: replaceMock, refresh: refreshMock }),
   useSearchParams: () => searchParams,
 }));
 
@@ -31,7 +31,7 @@ const { LoginForm } = await import("@/components/auth/login-form");
 describe("LoginForm", () => {
   beforeEach(() => {
     searchParams = new URLSearchParams();
-    pushMock.mockClear();
+    replaceMock.mockClear();
     refreshMock.mockClear();
     signInEmailMock.mockReset();
     resolvePostLoginDestinationActionMock.mockReset();
@@ -65,7 +65,7 @@ describe("LoginForm", () => {
     expect(signInEmailMock).not.toHaveBeenCalled();
   });
 
-  it("on successful sign-in, always defers to the Server Action for the destination", async () => {
+  it("ADMIN login redirects to /admin and clears the loading state", async () => {
     // The client never decides this itself — only the server knows the
     // account's real permissions. See modules/auth/post-login-redirect.ts.
     signInEmailMock.mockResolvedValue({ error: null });
@@ -88,7 +88,35 @@ describe("LoginForm", () => {
     await waitFor(() =>
       expect(resolvePostLoginDestinationActionMock).toHaveBeenCalledWith(null),
     );
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/admin"));
+    // The button must go back to its resting label — never left on
+    // "Ingresando…" after navigation has already been decided.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Iniciar sesión" })).not.toBeDisabled(),
+    );
+  });
+
+  it("CUSTOMER login redirects to /catalog and clears the loading state", async () => {
+    searchParams = new URLSearchParams({ redirectTo: "https://evil.com" });
+    signInEmailMock.mockResolvedValue({ error: null });
+    // The action itself is responsible for rejecting the unsafe value and
+    // falling back — this test only confirms the client renders whatever
+    // the server decided, never the raw query param.
+    resolvePostLoginDestinationActionMock.mockResolvedValue("/catalog");
+
+    render(<LoginForm />);
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "cliente@chaioboutique.local" },
+    });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/catalog"));
+    expect(replaceMock).not.toHaveBeenCalledWith("https://evil.com");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Iniciar sesión" })).not.toBeDisabled(),
+    );
   });
 
   it("passes a present redirectTo through to the Server Action, which decides whether to honor it", async () => {
@@ -107,26 +135,77 @@ describe("LoginForm", () => {
     await waitFor(() =>
       expect(resolvePostLoginDestinationActionMock).toHaveBeenCalledWith("/admin/products"),
     );
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/products"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/admin/products"));
   });
 
-  it("navigates to whatever the Server Action returns, never to an unsafe redirectTo directly", async () => {
-    searchParams = new URLSearchParams({ redirectTo: "https://evil.com" });
+  it("navigates to a safe fallback and clears loading when destination resolution fails, instead of hanging forever", async () => {
     signInEmailMock.mockResolvedValue({ error: null });
-    // The action itself is responsible for rejecting the unsafe value and
-    // falling back — this test only confirms the client renders whatever
-    // the server decided, never the raw query param.
-    resolvePostLoginDestinationActionMock.mockResolvedValue("/catalog");
+    resolvePostLoginDestinationActionMock.mockRejectedValue(new Error("boom"));
 
     render(<LoginForm />);
 
     fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "cliente@chaioboutique.local" },
+      target: { value: "admin@chaioboutique.local" },
     });
     fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/catalog"));
-    expect(pushMock).not.toHaveBeenCalledWith("https://evil.com");
+    // Sign-in already succeeded — the form must still navigate somewhere
+    // safe rather than leaving the user stranded on the login screen.
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Iniciar sesión" })).not.toBeDisabled(),
+    );
+  });
+
+  it("clears the loading state and shows an error when the sign-in request itself throws", async () => {
+    signInEmailMock.mockRejectedValue(new Error("network down"));
+
+    render(<LoginForm />);
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "admin@chaioboutique.local" },
+    });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Iniciar sesión" })).not.toBeDisabled(),
+    );
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores a second submit once the button has gone into its loading state", async () => {
+    // A controlled, not-yet-resolved promise: keeps the form in its
+    // "Ingresando…" state long enough to deterministically observe it,
+    // instead of racing a real mock that resolves before the first poll.
+    let resolveSignIn: (value: { error: null }) => void;
+    signInEmailMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSignIn = resolve;
+        }),
+    );
+    resolvePostLoginDestinationActionMock.mockResolvedValue("/admin");
+
+    render(<LoginForm />);
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "admin@chaioboutique.local" },
+    });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "password123" } });
+
+    const submitButton = screen.getByRole("button", { name: "Iniciar sesión" });
+    fireEvent.click(submitButton);
+    await waitFor(() => expect(submitButton).toBeDisabled());
+    // A disabled <button> never dispatches a click in the DOM — this proves
+    // the second submit is blocked at the UI layer, not just by the
+    // in-function isSubmitting guard.
+    fireEvent.click(submitButton);
+
+    resolveSignIn!({ error: null });
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/admin"));
+    expect(signInEmailMock).toHaveBeenCalledTimes(1);
   });
 });

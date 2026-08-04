@@ -1,11 +1,14 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { TriangleAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,6 +28,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { findSimilarSizeGroups, type SizeGroupSummary } from "@/modules/attributes/similarity";
 
 import { createSizeGroupAction } from "./actions";
 
@@ -35,7 +39,12 @@ const formSchema = z.object({
 });
 type FormInput = z.infer<typeof formSchema>;
 
-export function CreateSizeGroupDialog() {
+export function CreateSizeGroupDialog({
+  existingGroups,
+}: {
+  existingGroups: SizeGroupSummary[];
+}) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -44,17 +53,38 @@ export function CreateSizeGroupDialog() {
     defaultValues: { code: "", name: "", description: "" },
   });
 
+  // useWatch, not form.watch(): the latter returns a plain function React
+  // Compiler can't safely memoize (it skips compiling the whole component
+  // when it sees one) — useWatch is the React-Hook-Form-recommended,
+  // compiler-friendly way to subscribe to field values reactively.
+  const code = useWatch({ control: form.control, name: "code" });
+  const name = useWatch({ control: form.control, name: "name" });
+  // Non-blocking heads-up only — never prevents submission. See
+  // modules/attributes/similarity.ts for the heuristic (shared prefix or
+  // bigram overlap), which can't tell a real duplicate from an
+  // intentionally similar name — a human decides, this just flags it.
+  const similarGroups = useMemo(
+    () =>
+      code.trim() || name.trim()
+        ? findSimilarSizeGroups({ code, name }, existingGroups)
+        : [],
+    [code, name, existingGroups],
+  );
+
   async function onSubmit(values: FormInput) {
     setIsSubmitting(true);
     try {
-      await createSizeGroupAction({
+      const result = await createSizeGroupAction({
         code: values.code,
         name: values.name,
         description: values.description || undefined,
       });
-      toast.success("Grupo de talles creado.");
+      toast.success("Grupo de talles creado. Ahora podés agregar sus talles.");
       form.reset();
       setOpen(false);
+      // Straight to the detail page — creating a group is never the end
+      // goal, it exists to hold size options.
+      router.push(`/admin/size-groups/${result.id}`);
     } catch {
       toast.error("No pudimos crear el grupo de talles.");
     } finally {
@@ -99,6 +129,16 @@ export function CreateSizeGroupDialog() {
                 </FormItem>
               )}
             />
+            {similarGroups.length > 0 && (
+              <Alert>
+                <TriangleAlert />
+                <AlertDescription>
+                  Ya existe{similarGroups.length > 1 ? "n" : ""} un grupo parecido:{" "}
+                  {similarGroups.map((group) => `${group.name} (${group.code})`).join(", ")}. Si
+                  es el mismo grupo, usalo en vez de crear uno nuevo.
+                </AlertDescription>
+              </Alert>
+            )}
             <FormField
               control={form.control}
               name="description"

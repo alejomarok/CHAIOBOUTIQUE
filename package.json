@@ -20,7 +20,8 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "node scripts/with-test-db.mjs vitest run --config vitest.integration.config.ts",
     "test:migrations": "node scripts/with-test-db.mjs vitest run --config vitest.migrations.config.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "npm run db:test:migrate && node scripts/with-test-db.mjs playwright test",
+    "test:e2e:headed": "npm run db:test:migrate && node scripts/with-test-db.mjs playwright test --headed"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
