@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 
-import { setProductStatusAction } from "../actions";
+import { publishProductAction, setProductStatusAction } from "../actions";
 
 const STATUS_LABELS_ES: Record<string, string> = {
   DRAFT: "Borrador",
@@ -27,7 +27,7 @@ export function ProductStatusActions({
 }) {
   const [isPending, startTransition] = useTransition();
 
-  function changeStatus(nextStatus: "ACTIVE" | "INACTIVE" | "ARCHIVED") {
+  function changeStatus(nextStatus: "INACTIVE" | "ARCHIVED") {
     startTransition(async () => {
       try {
         await setProductStatusAction({ id: productId, status: nextStatus });
@@ -38,10 +38,31 @@ export function ProductStatusActions({
     });
   }
 
+  // Distinct from changeStatus: validates every public-visibility
+  // requirement server-side in one pass and, if anything is missing, shows
+  // every blocker together instead of a single generic error — see
+  // publishProductAction's own doc comment.
+  function handlePublish() {
+    startTransition(async () => {
+      try {
+        const result = await publishProductAction(productId);
+        if (result.status === "blocked") {
+          toast.error(
+            `No se puede publicar: ${result.blockers.map((b) => b.message).join(" ")}`,
+          );
+          return;
+        }
+        toast.success("Producto publicado.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "No pudimos publicar el producto.");
+      }
+    });
+  }
+
   return (
     <div className="flex gap-2">
       {canPublish && status !== "ACTIVE" && status !== "ARCHIVED" && (
-        <Button size="sm" disabled={isPending} onClick={() => changeStatus("ACTIVE")}>
+        <Button size="sm" disabled={isPending} onClick={handlePublish}>
           Publicar
         </Button>
       )}

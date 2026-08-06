@@ -19,6 +19,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { registerCustomerAction } from "@/app/(auth)/register/actions";
+import { mergeAnonymousCartAction } from "@/app/(public)/cart/actions";
 import { Input } from "@/components/ui/input";
 import { registerSchema, type RegisterInput } from "@/modules/auth/schemas";
 
@@ -44,6 +45,16 @@ export function RegisterForm() {
     setIsSubmitting(true);
     try {
       await registerCustomerAction(values);
+      // Better Auth signs the new account in immediately (registration
+      // doesn't wait on email verification) — a guest who added to cart
+      // before registering should see those items on their new account
+      // cart right away. A no-op for anyone whose registration somehow
+      // didn't establish a session; never fatal to registration itself.
+      try {
+        await mergeAnonymousCartAction();
+      } catch (mergeError) {
+        console.error("Failed to merge anonymous cart after registration.", mergeError);
+      }
       toast.success("Cuenta creada. Confirmá tu email para activarla.");
       router.push("/verify-email");
     } catch {

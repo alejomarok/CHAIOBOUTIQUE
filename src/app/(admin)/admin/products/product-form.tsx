@@ -106,7 +106,7 @@ export function ProductForm({
         router.push(`/admin/products/${productId}`);
       } else {
         const result = await createProductAction(payload);
-        toast.success("Producto creado. Ahora podés agregar variantes.");
+        toast.success("Producto creado como borrador. Ahora podés subir imágenes y completar variantes, stock y publicación.");
         router.push(`/admin/products/${result.id}`);
       }
     } catch {

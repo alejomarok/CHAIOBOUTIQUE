@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/modules/auth";
 import { listSizeOptions, listColors } from "@/modules/attributes/service";
 import { getTotalStockForVariants } from "@/modules/inventory/service";
+import { computeProductCompletionSteps } from "@/modules/products/completion-checklist";
 import { getProductImagePublicUrl } from "@/modules/products/product-images";
 import { getProductById } from "@/modules/products/service";
 import { getVisibilityBlockers } from "@/modules/products/visibility";
@@ -45,6 +46,21 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   // has to guess why a product isn't showing up publicly.
   const visibilityBlockers = getVisibilityBlockers(product, product.variants);
   const isPubliclyVisible = visibilityBlockers.length === 0;
+
+  // Required behavior #4: "provide a compact completion checklist" — progress
+  // guidance for a product mid-setup, distinct from visibilityBlockers above
+  // (the authoritative publish rule). A step here can be "optional" (size
+  // group, stock, images) in a way a publish blocker never is.
+  const completionSteps = computeProductCompletionSteps({
+    hasCategory: product.categoryId !== null,
+    hasSizeGroup: product.sizeGroupId !== null,
+    hasPrice: product.defaultPriceAmount !== null,
+    hasVariants: activeVariants.length > 0,
+    hasStock: totalStock > 0,
+    hasImages: product.images.length > 0,
+    isPublished: product.status === "ACTIVE",
+  });
+  const pendingRequiredSteps = completionSteps.filter((step) => !step.optional && !step.done);
 
   const canViewCost = user.permissions.has("products.view_cost");
   const canEdit = user.permissions.has("products.edit");
@@ -129,6 +145,39 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               <p>{product.images.length}</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Próximos pasos</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {pendingRequiredSteps.length > 0 && (
+            <p className="text-muted-foreground text-sm">
+              Completá lo siguiente antes de publicar: {pendingRequiredSteps.map((s) => s.label).join(", ")}.
+            </p>
+          )}
+          <ul className="grid gap-1.5 sm:grid-cols-2">
+            {completionSteps.map((step) => (
+              <li key={step.key} className="flex items-center gap-2 text-sm">
+                <span
+                  aria-hidden
+                  className={
+                    step.done
+                      ? "flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px]"
+                      : "border-muted-foreground/40 h-4 w-4 rounded-full border"
+                  }
+                >
+                  {step.done ? "✓" : ""}
+                </span>
+                <span className={step.done ? "" : "text-muted-foreground"}>
+                  {step.label}
+                  {step.optional && !step.done && " (opcional)"}
+                </span>
+              </li>
+            ))}
+          </ul>
         </CardContent>
       </Card>
 

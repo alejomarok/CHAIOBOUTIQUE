@@ -9,9 +9,11 @@ import {
   createProduct,
   createVariants,
   deactivateVariant,
+  getProductById,
   setProductStatus,
   updateProduct,
 } from "@/modules/products/service";
+import { getVisibilityBlockers, type VisibilityBlocker } from "@/modules/products/visibility";
 
 const moneyField = z
   .string()
@@ -186,6 +188,49 @@ export async function createVariantsAction(input: z.input<typeof createVariantsS
   // A product can already be ACTIVE when new variants are added to it
   // (e.g. restocking a new size) — see DATABASE.md "Public visibility".
   revalidatePath("/catalog");
+}
+
+export interface PublishProductResult {
+  status: "published" | "blocked";
+  blockers: VisibilityBlocker[];
+}
+
+// The explicit "Publicar" action — validates every public-visibility
+// requirement server-side, in one pass, via the single source of truth
+// (modules/products/visibility.ts's getVisibilityBlockers), and returns
+// ALL of them at once rather than failing on the first one. Never partially
+// publishes: if anything is missing, the product's status is left
+// untouched and every blocker is returned for the UI to display together.
+export async function publishProductAction(productId: string): Promise<PublishProductResult> {
+  const actor = await requirePermission("products.publish");
+  const product = await getProductById(productId);
+  if (!product) throw new Error("Producto no encontrado.");
+
+  // Checked as if status were already ACTIVE, then NOT_ACTIVE_STATUS is
+  // filtered out — that specific blocker is trivially true for anything
+  // not yet published (it's exactly what this action is about to fix), so
+  // reporting it back as a "reason it can't publish" would be circular and
+  // uninformative. Every other blocker (category, active variants, valid
+  // price) is real, independent missing data.
+  const blockers = getVisibilityBlockers(
+    {
+      status: "ACTIVE",
+      categoryId: product.categoryId,
+      defaultPriceAmount: product.defaultPriceAmount,
+    },
+    product.variants,
+  ).filter((blocker) => blocker.code !== "NOT_ACTIVE_STATUS");
+
+  if (blockers.length > 0) {
+    return { status: "blocked", blockers };
+  }
+
+  const updated = await setProductStatus(productId, "ACTIVE", actor.id);
+  revalidatePath(`/admin/products/${productId}`);
+  revalidatePath("/admin/products");
+  revalidatePath("/catalog");
+  revalidatePath(`/product/${updated.slug}`);
+  return { status: "published", blockers: [] };
 }
 
 export async function deactivateVariantAction(input: { variantId: string; productId: string }) {

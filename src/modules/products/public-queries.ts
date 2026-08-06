@@ -99,7 +99,14 @@ export type PublicStockStatus = "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK";
 
 export interface PublicVariantDTO {
   id: string;
+  sku: string;
+  sizeOptionId: string | null;
   sizeName: string | null;
+  // Ordering key for the size selector — SizeOption.sortOrder, never an
+  // alphabetical sort of sizeName (which would put "10" before "9"). Null
+  // for an axis-less variant, sorted first by the UI's own comparator.
+  sizeSortOrder: number | null;
+  colorId: string | null;
   colorName: string | null;
   priceDisplay: string;
   compareAtPriceDisplay: string | null;
@@ -120,6 +127,8 @@ export interface PublicProductDetailDTO {
   slug: string;
   shortDescription: string | null;
   description: string | null;
+  categoryName: string | null;
+  brandName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   images: PublicProductImageDTO[];
@@ -132,8 +141,19 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
   const product = await prisma.product.findUnique({
     where: { slug },
     include: {
-      variants: { where: { isActive: true }, include: { sizeOption: true, color: true } },
+      variants: {
+        where: { isActive: true },
+        include: { sizeOption: true, color: true },
+        // Size options ordered by their own sortOrder (never an
+        // alphabetical sort of the label, which would put "10" before
+        // "9") — see SizeOption.sortOrder's schema comment. Color has no
+        // equivalent requirement; ordered by its own displayOrder for a
+        // stable, admin-controlled sequence rather than insertion order.
+        orderBy: [{ sizeOption: { sortOrder: "asc" } }, { color: { displayOrder: "asc" } }],
+      },
       images: { orderBy: { displayOrder: "asc" } },
+      category: { select: { name: true } },
+      brand: { select: { name: true } },
     },
   });
 
@@ -155,6 +175,8 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
     slug: product.slug,
     shortDescription: product.shortDescription,
     description: product.description,
+    categoryName: product.category?.name ?? null,
+    brandName: product.brand?.name ?? null,
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
     images: product.images.map((image) => ({
@@ -183,7 +205,11 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
 
       return {
         id: variant.id,
+        sku: variant.sku,
+        sizeOptionId: variant.sizeOptionId,
         sizeName: variant.sizeOption?.label ?? null,
+        sizeSortOrder: variant.sizeOption?.sortOrder ?? null,
+        colorId: variant.colorId,
         colorName: variant.color?.displayName ?? null,
         priceDisplay: minorUnitsToDisplay(price),
         compareAtPriceDisplay: compareAt !== null ? minorUnitsToDisplay(compareAt) : null,

@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { CartIconLink } from "@/components/layout/cart-icon-link";
+import { DashboardLink } from "@/components/layout/dashboard-link";
 import { Logo } from "@/components/layout/logo";
 import { Button } from "@/components/ui/button";
 
@@ -23,6 +25,8 @@ export function PublicHeader() {
               </li>
             ))}
           </ul>
+          <CartIconLink />
+          <DashboardLink />
           <Button asChild variant="outline" size="sm">
             <Link href="/login">Iniciar sesión</Link>
           </Button>

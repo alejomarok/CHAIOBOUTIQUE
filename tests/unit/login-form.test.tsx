@@ -26,6 +26,13 @@ vi.mock("@/app/(auth)/login/actions", () => ({
   resolvePostLoginDestinationAction: resolvePostLoginDestinationActionMock,
 }));
 
+// Same reasoning as above — the real module imports the cart service ->
+// @/lib/db -> env validation.
+const mergeAnonymousCartActionMock = vi.fn();
+vi.mock("@/app/(public)/cart/actions", () => ({
+  mergeAnonymousCartAction: mergeAnonymousCartActionMock,
+}));
+
 const { LoginForm } = await import("@/components/auth/login-form");
 
 describe("LoginForm", () => {
@@ -35,6 +42,7 @@ describe("LoginForm", () => {
     refreshMock.mockClear();
     signInEmailMock.mockReset();
     resolvePostLoginDestinationActionMock.mockReset();
+    mergeAnonymousCartActionMock.mockReset();
   });
 
   afterEach(cleanup);

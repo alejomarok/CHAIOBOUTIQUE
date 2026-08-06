@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import "../integration/guard";
 
 import { prisma } from "@/lib/db-core";
+import { runCleanup } from "../fixtures/cleanup";
 import { createTestUser, deleteTestUser } from "../fixtures/users";
 import { createCategory } from "@/modules/categories/service-core";
 import { createProduct, createVariants, setProductStatus } from "@/modules/products/service-core";
@@ -26,10 +27,7 @@ test.describe("admin smoke flow (real DB, real HTTP)", () => {
   const cleanup: Array<() => Promise<unknown>> = [];
 
   test.afterEach(async () => {
-    while (cleanup.length > 0) {
-      const fn = cleanup.pop();
-      if (fn) await fn();
-    }
+    await runCleanup(cleanup);
     while (createdUserIds.length > 0) {
       const userId = createdUserIds.pop();
       if (userId) await deleteTestUser(userId);
@@ -50,21 +48,21 @@ test.describe("admin smoke flow (real DB, real HTTP)", () => {
       { name: `Admin Smoke Categoria ${Date.now()}` },
       actor.id,
     );
-    cleanup.push(() => prisma.category.delete({ where: { id: category.id } }));
+    cleanup.push(() => prisma.category.deleteMany({ where: { id: category.id } }));
 
     const uniqueName = `Producto Smoke ${Date.now()}`;
     const product = await createProduct(
       { name: uniqueName, categoryId: category.id, defaultPriceAmount: 990000n },
       actor.id,
     );
-    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
+    cleanup.push(() => prisma.product.deleteMany({ where: { id: product.id } }));
 
     const [variant] = await createVariants(
       product.id,
       [{ sizeOptionId: null, colorId: null, sku: `SMOKE-${Date.now()}` }],
       actor.id,
     );
-    cleanup.push(() => prisma.productVariant.delete({ where: { id: variant.id } }));
+    cleanup.push(() => prisma.productVariant.deleteMany({ where: { id: variant.id } }));
 
     await setProductStatus(product.id, "ACTIVE", actor.id);
 
@@ -95,6 +93,19 @@ test.describe("admin smoke flow (real DB, real HTTP)", () => {
     });
     await page.getByRole("button", { name: "Subir imagen" }).click();
     await expect(page.getByText("Principal")).toBeVisible({ timeout: 15_000 });
+    // Pushed after the product-delete cleanup above so it pops first (LIFO).
+    // ProductImage.productId already cascades on Product delete at the DB
+    // level, so this row would be removed either way — explicit here so no
+    // ProductImage row can ever survive this test regardless of schema
+    // changes. The underlying E2EStorageProvider bytes (see modules/storage/
+    // e2e-provider.ts) don't need a matching release call: that store is an
+    // in-memory Map scoped to the single `next dev` process this e2e run's
+    // webServer starts, gone entirely the moment the run ends — an orphaned
+    // entry can't leak into a later `npm run test:e2e` invocation, and
+    // within this run nothing can ever address it again once its owning
+    // ProductImage row (and the cuid-derived path only that row referenced)
+    // is gone.
+    cleanup.push(() => prisma.productImage.deleteMany({ where: { productId: product.id } }));
 
     // 6. Confirm the product (with its image) appears in /catalog.
     await page.goto(`/catalog?q=${encodeURIComponent(uniqueName)}`);

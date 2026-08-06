@@ -22,7 +22,10 @@ export default async function NewProductPage() {
       <div>
         <h1 className="font-heading text-2xl font-semibold">Nuevo producto</h1>
         <p className="text-muted-foreground text-sm">
-          Después de crearlo vas a poder agregar talles, colores y variantes.
+          Esto solo guarda los datos básicos. Después de crear el producto vas a poder definir
+          categoría, grupo de talles, variantes, stock e imágenes — las imágenes recién se pueden
+          subir una vez que el producto ya existe. El producto queda en borrador y no se publica
+          automáticamente.
         </p>
       </div>
       <Card>

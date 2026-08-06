@@ -64,6 +64,12 @@ model User {
   customerProfile    CustomerProfile?
   registrationIntent PublicRegistrationIntent?
 
+  // Phase 4A — cart back-relation. Only ever set for a genuine CUSTOMER-role
+  // account (see modules/cart/identity.ts) — a staff session shopping the
+  // storefront gets an anonymous, cookie-based cart instead, same as a
+  // guest, so it never accidentally acquires a customer checkout identity.
+  carts Cart[]
+
   @@map("user")
 }
 
@@ -455,6 +461,7 @@ model ProductVariant {
   inventoryMovements InventoryMovement[]
   inventoryBalances  InventoryBalance[]
   images             ProductImage[]
+  cartItems          CartItem[]
 
   // Covers the fully-specified case (both sizeOptionId and colorId set).
   // The default/size-only/color-only cases (where a plain @@unique can't
@@ -794,4 +801,93 @@ model CustomerConsent {
 
   @@index([customerProfileId, consentType])
   @@map("customer_consent")
+}
+
+// =============================================================================
+// Phase 4A — Persistent shopping cart. See docs/adr/0004-cart-persistence.md
+// and modules/cart/service.ts. Explicitly out of scope this phase: checkout,
+// orders, payments, shipping, stock reservation.
+// =============================================================================
+
+enum CartStatus {
+  ACTIVE
+  // An anonymous cart whose items were folded into a customer's ACTIVE cart
+  // on login/registration — see mergeAnonymousCartIntoCustomerCart. A MERGED
+  // cart is never looked up again by its anonymousToken (the cookie is
+  // cleared the same transaction), which is what makes a repeated merge
+  // request a safe no-op.
+  MERGED
+  // Reserved for a future checkout phase (order creation converts the cart)
+  // — not written by any code this phase, included now so CartStatus never
+  // needs a breaking migration later.
+  CONVERTED
+  // Lazily recognized, never swept by a scheduled job this phase: an
+  // anonymous cart whose expiresAt has passed is treated as unusable the
+  // next time it's looked up (see getOrCreateCart), which is the point it
+  // actually gets marked ABANDONED.
+  ABANDONED
+}
+
+model Cart {
+  id             String     @id @default(cuid())
+  // Set only for a genuine CUSTOMER-role account's persistent cart; null for
+  // every anonymous cart. Never both userId and anonymousToken at once.
+  userId         String?
+  // Cryptographically random opaque token (crypto.randomBytes(32), never
+  // derived from or equal to `id`) — the ONLY thing an anonymous visitor's
+  // HttpOnly cookie carries. See modules/cart/identity.ts. Deliberately a
+  // separate value from the primary key so the cart's row id never doubles
+  // as a bearer credential.
+  anonymousToken String?    @unique
+  status         CartStatus @default(ACTIVE)
+  // Copied from StoreConfiguration.currency at creation time — the store is
+  // single-currency today, but every monetary row in this schema carries its
+  // own currency rather than assuming a global constant (same posture as
+  // Product/ProductVariant's amounts).
+  currency       String
+  // Anonymous carts only — see ANONYMOUS_CART_TTL_DAYS in
+  // modules/cart/service.ts. Always null for a customer's account cart (a
+  // signed-in customer's cart never expires on its own).
+  expiresAt      DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  user  User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+
+  // At most one ACTIVE cart per customer — a hand-written partial unique
+  // index (cart_active_user_unique, same null-axis technique as
+  // Warehouse.isDefault/ProductImage.isPrimary; see DATABASE.md) added
+  // directly in the migration SQL, since a plain @@unique([userId, status])
+  // would also block a user from ever having two non-ACTIVE carts (e.g. two
+  // MERGED carts from two separate guest sessions), which is fine and
+  // expected. anonymousToken's plain @unique above already gives the
+  // equivalent one-token-one-row guarantee for the anonymous side; a
+  // customer can accumulate multiple non-ACTIVE carts over time (one per
+  // merge event) with no conflict.
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("cart")
+}
+
+model CartItem {
+  id                      String   @id @default(cuid())
+  cartId                  String
+  productVariantId        String
+  quantity                Int
+  // The unit price (minor units) at the moment this item was last added or
+  // its quantity last changed — never the authoritative price for a read or
+  // a future order. Compared against the freshly-resolved current price at
+  // read time purely to surface a "price changed" cart issue; see
+  // modules/cart/service.ts's computeCartItemIssues. Never trusted as input,
+  // only ever written from a server-resolved price.
+  observedUnitPriceAmount BigInt
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  cart           Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@unique([cartId, productVariantId])
+  @@map("cart_item")
 }

@@ -61,13 +61,18 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
 
       <div className="flex flex-col gap-6">
         <div>
+          {(product.brandName ?? product.categoryName) && (
+            <p className="text-muted-foreground text-sm">
+              {[product.brandName, product.categoryName].filter(Boolean).join(" · ")}
+            </p>
+          )}
           <h1 className="font-heading text-3xl font-semibold">{product.name}</h1>
           {product.shortDescription && (
             <p className="text-muted-foreground mt-2">{product.shortDescription}</p>
           )}
         </div>
 
-        <ProductVariantSelector variants={product.variants} />
+        <ProductVariantSelector productId={product.id} variants={product.variants} />
 
         {product.description && (
           <p className="text-muted-foreground text-sm text-pretty">{product.description}</p>

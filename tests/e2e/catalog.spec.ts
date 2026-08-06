@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import "../integration/guard";
 
 import { prisma } from "@/lib/db-core";
+import { runCleanup } from "../fixtures/cleanup";
 import { createTestUser, deleteTestUser } from "../fixtures/users";
 import { createCategory } from "@/modules/categories/service-core";
 import { adjustInventory } from "@/modules/inventory/service-core";
@@ -20,10 +21,7 @@ test.describe("public catalog and product detail (real DB, real HTTP)", () => {
   const cleanup: Array<() => Promise<unknown>> = [];
 
   test.afterEach(async () => {
-    while (cleanup.length > 0) {
-      const fn = cleanup.pop();
-      if (fn) await fn();
-    }
+    await runCleanup(cleanup);
     while (createdUserIds.length > 0) {
       const userId = createdUserIds.pop();
       if (userId) await deleteTestUser(userId);
@@ -107,14 +105,14 @@ test.describe("public catalog and product detail (real DB, real HTTP)", () => {
     createdUserIds.push(actor.id);
 
     const category = await createCategory({ name: `E2E Categoria Draft ${Date.now()}` }, actor.id);
-    cleanup.push(() => prisma.category.delete({ where: { id: category.id } }));
+    cleanup.push(() => prisma.category.deleteMany({ where: { id: category.id } }));
 
     const uniqueName = `Borrador E2E ${Date.now()}`;
     const product = await createProduct(
       { name: uniqueName, categoryId: category.id, defaultPriceAmount: 1000000n },
       actor.id,
     );
-    cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
+    cleanup.push(() => prisma.product.deleteMany({ where: { id: product.id } }));
 
     // The rendered content (next/navigation's notFound()) is the reliable,
     // actually-enforced signal here, not the HTTP status code — this

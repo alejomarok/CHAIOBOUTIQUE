@@ -27,3 +27,8 @@ export function buildRateLimitKey(
 // caller-side changes needed. See SECURITY.md.
 export const registrationRateLimiter: RateLimiter = createRateLimiter(5, 60 * 60 * 1000);
 export const resendVerificationRateLimiter: RateLimiter = createRateLimiter(3, 10 * 60 * 1000);
+// Generous enough for real add/quantity-change/remove clicking, tight
+// enough to blunt a scripted add-to-cart loop — keyed per-identity (see
+// modules/cart/rate-limit.ts), never per-IP alone, so one shopper's normal
+// use never throttles a different shopper behind the same IP/NAT.
+export const cartMutationRateLimiter: RateLimiter = createRateLimiter(30, 60 * 1000);

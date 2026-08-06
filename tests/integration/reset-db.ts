@@ -28,7 +28,7 @@ import {
 } from "@/modules/roles/seed-core";
 
 const EXPECTED_TEST_HOST = "localhost";
-const EXPECTED_TEST_PORT = "55432";
+const EXPECTED_TEST_PORT = "56032";
 const EXPECTED_TEST_DATABASE_NAME = "chaioboutique_test";
 
 // Every application table, in no particular order — TRUNCATE ... CASCADE

@@ -17,6 +17,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { resolvePostLoginDestinationAction } from "@/app/(auth)/login/actions";
+import { mergeAnonymousCartAction } from "@/app/(public)/cart/actions";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { loginSchema, type LoginInput } from "@/modules/auth/schemas";
@@ -70,6 +71,17 @@ export function LoginForm() {
         toast.error(
           "Iniciaste sesión, pero no pudimos calcular tu destino habitual. Te llevamos al inicio.",
         );
+      }
+
+      // A no-op for a staff/admin sign-in (mergeAnonymousCartIntoCustomerCart
+      // only ever acts for a genuine CUSTOMER identity) — safe to call
+      // unconditionally. Awaited before navigating so the destination
+      // page's first render already reflects the merged cart; a failure
+      // here must never block sign-in itself.
+      try {
+        await mergeAnonymousCartAction();
+      } catch (mergeError) {
+        console.error("Failed to merge anonymous cart after sign-in.", mergeError);
       }
 
       // replace, not push: signing in should not leave the login form as a

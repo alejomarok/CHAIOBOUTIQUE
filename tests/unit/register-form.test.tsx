@@ -15,6 +15,12 @@ vi.mock("@/app/(auth)/register/actions", () => ({
   registerCustomerAction: registerCustomerActionMock,
 }));
 
+// Same reasoning — the real module imports the cart service -> @/lib/db.
+const mergeAnonymousCartActionMock = vi.fn();
+vi.mock("@/app/(public)/cart/actions", () => ({
+  mergeAnonymousCartAction: mergeAnonymousCartActionMock,
+}));
+
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -38,6 +44,7 @@ describe("RegisterForm", () => {
   beforeEach(() => {
     pushMock.mockClear();
     registerCustomerActionMock.mockReset();
+    mergeAnonymousCartActionMock.mockReset();
   });
 
   afterEach(cleanup);

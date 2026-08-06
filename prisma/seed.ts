@@ -17,6 +17,7 @@ import "dotenv/config";
 import { auth, REQUIRE_EMAIL_VERIFICATION } from "@/lib/auth-core";
 import { prisma } from "@/lib/db-core";
 import { env } from "@/lib/env-core";
+import { printSizeSeedSummary, seedDefaultSizeGroups } from "@/modules/attributes/seed-core";
 import { PERMISSIONS } from "@/modules/permissions/catalog";
 import { ROLE_DEFINITIONS } from "@/modules/roles/catalog";
 import {
@@ -89,6 +90,9 @@ async function main() {
   console.log("Seeded base store configuration.");
 
   await seedInitialAdmin();
+
+  const sizeSeedSummary = await seedDefaultSizeGroups();
+  printSizeSeedSummary(sizeSeedSummary);
 }
 
 main()

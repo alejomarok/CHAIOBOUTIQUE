@@ -62,8 +62,8 @@ docker compose up -d
 
 This starts:
 
-- A local Postgres on `localhost:55432` — set `TEST_DATABASE_URL` in `.env` to
-  `postgresql://chaioboutique_test:chaioboutique_test@localhost:55432/chaioboutique_test`
+- A local Postgres on `localhost:56032` — set `TEST_DATABASE_URL` in `.env` to
+  `postgresql://chaioboutique_test:chaioboutique_test@localhost:56032/chaioboutique_test`
 - Mailpit (SMTP on `localhost:1025`, web UI at http://localhost:8025) — password-reset emails
   land there in dev, since no production email provider is wired up yet.
 

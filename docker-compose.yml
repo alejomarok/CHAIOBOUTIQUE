@@ -15,7 +15,7 @@ services:
       POSTGRES_PASSWORD: chaioboutique_test
       POSTGRES_DB: chaioboutique_test
     ports:
-      - "55432:5432"
+      - "56032:5432"
     volumes:
       - chaioboutique-test-db:/var/lib/postgresql/data
 

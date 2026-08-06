@@ -56,7 +56,10 @@ export async function listProducts() {
     include: {
       category: { select: { id: true, name: true } },
       brand: { select: { id: true, name: true } },
-      variants: { select: { id: true, isActive: true } },
+      // priceAmount is required by getVisibilityBlockers (the admin
+      // products list surfaces public-visibility status per row) — never
+      // duplicate the rule itself, just fetch what it needs.
+      variants: { select: { id: true, isActive: true, priceAmount: true } },
     },
     orderBy: { updatedAt: "desc" },
   });

@@ -17,7 +17,7 @@ Prisma 7 requires an explicit driver adapter and no longer reads a connection UR
   `prisma.config.ts`. PgBouncer's transaction mode cannot run schema migrations, so migrations
   need a non-pooled (or session-pooled) connection.
 - **`TEST_DATABASE_URL`** — a **separate** Postgres instance (the provided `docker-compose.yml`
-  runs one on `localhost:55432`), used only by integration tests and `npm run db:test:migrate`.
+  runs one on `localhost:56032`), used only by integration tests and `npm run db:test:migrate`.
   Never the same value as `DATABASE_URL`. `scripts/with-test-db.mjs` enforces this: it refuses to
   run if `TEST_DATABASE_URL` is unset, and force-overrides `DATABASE_URL`/`DIRECT_URL` to it for
   the duration of the test command — this is deliberate so a test run can never silently fall
@@ -457,5 +457,5 @@ import foundation" above) is for — the seed intentionally stays scoped to what
 ## Local test database
 
 `docker-compose.yml` provides a disposable Postgres 17 container for `TEST_DATABASE_URL`
-(`localhost:55432`) plus Mailpit. Start with `docker compose up -d`. This is a reversible
+(`localhost:56032`) plus Mailpit. Start with `docker compose up -d`. This is a reversible
 default — a second Supabase project/branch works equally well if preferred.
