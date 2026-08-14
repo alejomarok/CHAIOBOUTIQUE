@@ -32,6 +32,17 @@ export default async function WarehousesPage() {
         </div>
         {canManage && <CreateWarehouseDialog />}
       </div>
+      {warehouses.length === 0 && (
+        <div className="border-destructive/40 bg-destructive/5 rounded-xl border p-4">
+          <p className="font-medium">Todavía no hay depósitos.</p>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Sin un depósito, el stock no se puede mostrar ni cargar en ningún producto.
+            {canManage
+              ? " Creá el primero para empezar a cargar stock."
+              : " Pedile a un administrador que cree uno."}
+          </p>
+        </div>
+      )}
       <div className="border-border overflow-hidden rounded-xl border">
         <Table>
           <TableHeader>

@@ -1,6 +1,7 @@
 import { serializeMoney } from "@/lib/money";
 import { prisma } from "@/lib/db-core";
 import { ensureUniqueSlug } from "@/lib/slug";
+import { timed } from "@/lib/timing";
 import { recordAuditLog } from "@/modules/audit/index-core";
 import type { Product, ProductStatus, ProductVariant } from "@/generated/prisma/client";
 
@@ -52,30 +53,34 @@ export class ProductSizeGroupChangeBlockedError extends Error {
 }
 
 export async function listProducts() {
-  return prisma.product.findMany({
-    include: {
-      category: { select: { id: true, name: true } },
-      brand: { select: { id: true, name: true } },
-      // priceAmount is required by getVisibilityBlockers (the admin
-      // products list surfaces public-visibility status per row) — never
-      // duplicate the rule itself, just fetch what it needs.
-      variants: { select: { id: true, isActive: true, priceAmount: true } },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+  return timed("products.listProducts", () =>
+    prisma.product.findMany({
+      include: {
+        category: { select: { id: true, name: true } },
+        brand: { select: { id: true, name: true } },
+        // priceAmount is required by getVisibilityBlockers (the admin
+        // products list surfaces public-visibility status per row) — never
+        // duplicate the rule itself, just fetch what it needs.
+        variants: { select: { id: true, isActive: true, priceAmount: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+  );
 }
 
 export async function getProductById(id: string) {
-  return prisma.product.findUnique({
-    where: { id },
-    include: {
-      category: true,
-      brand: true,
-      sizeGroup: true,
-      variants: { include: { sizeOption: true, color: true }, orderBy: { createdAt: "asc" } },
-      images: { orderBy: { displayOrder: "asc" } },
-    },
-  });
+  return timed("products.getProductById", () =>
+    prisma.product.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        brand: true,
+        sizeGroup: true,
+        variants: { include: { sizeOption: true, color: true }, orderBy: { createdAt: "asc" } },
+        images: { orderBy: { displayOrder: "asc" } },
+      },
+    }),
+  );
 }
 
 export interface ProductDTO {

@@ -57,32 +57,40 @@ export function LoginForm() {
       // both same-origin-safe and a destination this account is actually
       // authorized for; otherwise it falls back to the role-based default.
       // See modules/auth/post-login-redirect.ts.
+      //
+      // Run concurrently, not sequentially: destination resolution and the
+      // cart merge are independent of each other, and each pays a full
+      // network round trip to the server — against a remote database,
+      // running them one after another measurably doubles this step's
+      // latency for no reason. Each keeps its own catch so one failing
+      // never blocks or gets masked by the other, matching the exact
+      // fallback behavior this had before.
       const requestedRedirect = searchParams.get("redirectTo");
-      let destination = "/";
-      try {
-        destination = await resolvePostLoginDestinationAction(requestedRedirect);
-      } catch (destinationError) {
-        // The account IS already signed in at this point (signIn.email
-        // succeeded above) — a hiccup resolving *where* to send them must
-        // never strand the user staring at a "loading" login form forever.
-        // "/" is a safe destination any authenticated account can reach —
-        // see isAuthorizedForPath's catch-all.
-        console.error("Failed to resolve post-login destination.", destinationError);
-        toast.error(
-          "Iniciaste sesión, pero no pudimos calcular tu destino habitual. Te llevamos al inicio.",
-        );
-      }
+      const destinationPromise = resolvePostLoginDestinationAction(requestedRedirect).catch(
+        (destinationError) => {
+          // The account IS already signed in at this point (signIn.email
+          // succeeded above) — a hiccup resolving *where* to send them must
+          // never strand the user staring at a "loading" login form
+          // forever. "/" is a safe destination any authenticated account
+          // can reach — see isAuthorizedForPath's catch-all.
+          console.error("Failed to resolve post-login destination.", destinationError);
+          toast.error(
+            "Iniciaste sesión, pero no pudimos calcular tu destino habitual. Te llevamos al inicio.",
+          );
+          return "/";
+        },
+      );
 
       // A no-op for a staff/admin sign-in (mergeAnonymousCartIntoCustomerCart
       // only ever acts for a genuine CUSTOMER identity) — safe to call
       // unconditionally. Awaited before navigating so the destination
       // page's first render already reflects the merged cart; a failure
       // here must never block sign-in itself.
-      try {
-        await mergeAnonymousCartAction();
-      } catch (mergeError) {
+      const cartMergePromise = mergeAnonymousCartAction().catch((mergeError) => {
         console.error("Failed to merge anonymous cart after sign-in.", mergeError);
-      }
+      });
+
+      const [destination] = await Promise.all([destinationPromise, cartMergePromise]);
 
       // replace, not push: signing in should not leave the login form as a
       // back-button destination for an already-authenticated session.

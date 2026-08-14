@@ -11,6 +11,8 @@ documented-only this phase, and the interface each future integration must imple
 ```ts
 interface StorageProvider {
   upload(input: UploadInput): Promise<StoredObject>;
+  createSignedUploadUrl(bucket: string, path: string): Promise<SignedUploadTarget>;
+  download(bucket: string, path: string): Promise<Buffer>;
   getSignedUrl(bucket: string, path: string, expiresInSeconds: number): Promise<string>;
   getPublicUrl(bucket: string, path: string): string; // synchronous
   delete(bucket: string, path: string): Promise<void>;
@@ -26,19 +28,33 @@ scoped to `entityType/entityId/<uuid>.<ext>` (prevents path traversal; never the
 filename). The application database stores only metadata (bucket, path, MIME, size,
 width/height) — never binary content.
 
-`modules/products/product-images.ts` is the first real caller: `uploadProductImage` (upload →
-DB insert, with best-effort storage cleanup if the insert fails), `deleteProductImage` (DB row
-deleted first, storage delete is best-effort — an orphaned storage object is a documented,
-accepted gap, safer than a DB row pointing at a deleted object), `setPrimaryImage` (exactly one
-primary per product, transactional), `replaceProductImage`. No format conversion or resizing
-happens server-side this phase — no `sharp` dependency, deliberately: as of this phase, `sharp`
-has documented compatibility friction with Next.js 16 + Turbopack + Vercel's serverless bundling
-that wasn't worth working around for a first cut. Images are stored exactly as uploaded (JPEG
-stays `.jpg`, etc.); `image-size` (pure JS, no native binary) validates pixel dimensions only
-(max 6000px/side); `next/image` + `next.config.ts`'s `images.remotePatterns` (derived from
-`SUPABASE_URL` at config-load time) handle resizing/format negotiation at render time instead.
-Revisit `sharp` if server-side processing (thumbnails, format normalization) becomes a real
-requirement later.
+**Product images upload directly from the browser to Supabase Storage — the file's bytes never
+pass through a Next.js Server Action** (Server Actions have a 1 MB default body limit, and the
+point of a direct upload is to not depend on raising it). `modules/products/product-images.ts`
+drives a two-phase flow: `prepareProductImageUpload` (auth check, product-existence check,
+server-generates the object path, calls `createSignedUploadUrl` — a short-lived, path-scoped
+token; no Supabase key of any kind is ever sent to the browser) → the browser PUTs the file
+directly to the returned `signedUrl` → `finalizeProductImageUpload` (re-checks auth, validates the
+echoed-back path matches exactly `products/{productId}/{uuid}.{ext}` via regex — a client can
+never point the finalize step at another product's or another bucket's object — downloads the
+object back since the server never saw the bytes in transit, then runs the same file-signature
+and dimension checks the old single-step flow ran, then creates the `ProductImage` row). If DB
+creation fails after a successful storage upload, the just-uploaded object is deleted so nothing
+orphaned is left pointing at no DB row; if that cleanup itself fails, it's logged, not swallowed.
+`deleteProductImage` (DB row deleted first, storage delete is best-effort — an orphaned storage
+object is a documented, accepted gap, safer than a DB row pointing at a deleted object),
+`setPrimaryImage` (exactly one primary per product, transactional). No format conversion or
+resizing happens server-side — no `sharp` dependency, deliberately: as of this phase, `sharp` has
+documented compatibility friction with Next.js 16 + Turbopack + Vercel's serverless bundling that
+wasn't worth working around. Instead, `src/lib/image-optimize.ts` resizes/re-encodes client-side
+before upload (`createImageBitmap` + `<canvas>`, no native dependency) — max long edge ~1900px,
+JPEG/WebP quality 0.82, format-preserving (PNG stays PNG, so transparency is never destroyed),
+20 MB hard source-file ceiling. Images are stored exactly as the browser uploaded them post
+client-side optimization; `image-size` (pure JS, no native binary) validates pixel dimensions
+server-side (max 6000px/side, checked against the real downloaded bytes, never a client-reported
+value); `next/image` + `next.config.ts`'s `images.remotePatterns` (derived from `SUPABASE_URL` at
+config-load time) handle resizing/format negotiation at render time. Revisit `sharp` if
+server-side processing (thumbnails, format normalization) becomes a real requirement later.
 
 `SUPABASE_PRODUCT_IMAGES_BUCKET` (default `product-images`) is a public bucket — product photos
 are customer-facing by nature; nothing sensitive is ever stored in it.

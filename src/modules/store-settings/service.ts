@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { recordAuditLog } from "@/modules/audit";
@@ -8,7 +10,12 @@ const STORE_CONFIGURATION_ID = "main";
 
 // Upserts the single-row store configuration, seeding it from env defaults
 // on first read so the settings page always has something to render.
-export async function getStoreConfiguration() {
+// cache()'d per request: this single-row, rarely-changing config is read by
+// nearly every cart/pricing operation — several calls in the same request
+// (e.g. mergeAnonymousCartIntoCustomerCart's own call chain) previously each
+// paid a full upsert round trip against the remote database (~1.1s
+// measured); memoizing within the request means only the first pays it.
+export const getStoreConfiguration = cache(async () => {
   return prisma.storeConfiguration.upsert({
     where: { id: STORE_CONFIGURATION_ID },
     update: {},
@@ -20,7 +27,7 @@ export async function getStoreConfiguration() {
       timezone: env.STORE_TIMEZONE,
     },
   });
-}
+});
 
 export interface UpdateStoreConfigurationInput {
   name: string;

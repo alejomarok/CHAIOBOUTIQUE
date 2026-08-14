@@ -56,9 +56,17 @@ type FormInput = z.infer<typeof formSchema>;
 export function AdjustmentForm({
   variants,
   warehouses,
+  defaultVariantId,
+  defaultWarehouseId,
 }: {
   variants: { id: string; label: string }[];
   warehouses: { id: string; name: string }[];
+  // Pre-selects the variant/warehouse when arriving from a specific
+  // product's "Cargar stock" action (see admin/products/[id]/page.tsx) —
+  // avoids dumping the admin into a blank form to hunt through hundreds of
+  // variants for the one they just came from.
+  defaultVariantId?: string;
+  defaultWarehouseId?: string;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Generated once per mount, resubmitted on every attempt — a double-click
@@ -69,8 +77,8 @@ export function AdjustmentForm({
   const form = useForm<FormInput>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      variantId: "",
-      warehouseId: "",
+      variantId: defaultVariantId ?? "",
+      warehouseId: defaultWarehouseId ?? "",
       movementType: "INITIAL_STOCK",
       quantity: 1,
       reason: "",

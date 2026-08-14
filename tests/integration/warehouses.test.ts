@@ -30,6 +30,16 @@ describe("warehouses — exactly one default (real DB)", () => {
     });
     createdUserIds.push(actor.id);
 
+    // This test deliberately reassigns the default warehouse twice — restore
+    // whatever was default before it ran (the seeded baseline warehouse, see
+    // modules/warehouses/seed-core.ts) so later tests/files in this same run
+    // still see a default warehouse configured, exactly as they would on a
+    // freshly reset database.
+    const originalDefault = await prisma.warehouse.findFirst({ where: { isDefault: true } });
+    if (originalDefault) {
+      cleanup.push(() => setDefaultWarehouse(originalDefault.id, actor.id));
+    }
+
     const a = await createWarehouse({ code: `DEF-A-${Date.now()}`, name: "A" }, actor.id);
     cleanup.push(() => prisma.warehouse.delete({ where: { id: a.id } }));
     const b = await createWarehouse({ code: `DEF-B-${Date.now()}`, name: "B" }, actor.id);

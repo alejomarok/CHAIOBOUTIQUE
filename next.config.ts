@@ -15,6 +15,14 @@ const nextConfig: NextConfig = {
   // responses instead of relying on client-side UI hiding.
   experimental: {
     authInterrupts: true,
+    // Product image bytes never go through a Server Action (see
+    // modules/products/product-images.ts's direct-to-Supabase signed
+    // upload flow) — this only covers ordinary form submissions
+    // (product fields, etc.), so a modest bump above the 1 MB default is
+    // enough headroom without inviting large-body abuse.
+    serverActions: {
+      bodySizeLimit: "2mb",
+    },
   },
   // Silences Next's workspace-root inference: an unrelated package-lock.json
   // lives one level up (a sibling project directory), which Turbopack would

@@ -24,11 +24,13 @@ export function validateUpload(input: ValidateUploadInput): void {
   const maxSize = input.maxSizeBytes ?? DEFAULT_MAX_SIZE_BYTES;
 
   if (!input.allowedMimeTypes.includes(input.contentType)) {
-    throw new StorageValidationError(`Content type not allowed: ${input.contentType}`);
+    throw new StorageValidationError(`Tipo de archivo no permitido: ${input.contentType}.`);
   }
 
   if (input.size <= 0 || input.size > maxSize) {
-    throw new StorageValidationError(`File size out of range: ${input.size} bytes`);
+    throw new StorageValidationError(
+      `El archivo supera el tamaño máximo permitido (${Math.round(maxSize / (1024 * 1024))} MB).`,
+    );
   }
 
   const extension = input.filename.split(".").pop()?.toLowerCase();
@@ -36,7 +38,7 @@ export function validateUpload(input: ValidateUploadInput): void {
 
   if (!extension || !allowedExtensions?.includes(extension)) {
     throw new StorageValidationError(
-      `File extension "${extension ?? ""}" does not match content type "${input.contentType}"`,
+      `La extensión del archivo ("${extension ?? ""}") no coincide con su tipo declarado.`,
     );
   }
 }

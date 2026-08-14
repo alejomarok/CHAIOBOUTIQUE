@@ -20,7 +20,11 @@ export interface CreateWarehouseInput {
   description?: string | null;
 }
 
-export async function createWarehouse(input: CreateWarehouseInput, actorId: string) {
+// actorId is nullable — a system-initiated write (e.g. the default-warehouse
+// seed in modules/warehouses/seed-core.ts) has no real acting user, same
+// "system action, never attributed to a human that didn't perform it"
+// posture as modules/attributes/service-core.ts's createSizeGroup.
+export async function createWarehouse(input: CreateWarehouseInput, actorId: string | null) {
   const warehouse = await prisma.warehouse.create({
     data: { code: input.code, name: input.name, description: input.description ?? null },
   });
@@ -60,7 +64,8 @@ export async function updateWarehouse(id: string, input: UpdateWarehouseInput, a
 // a single transaction. Belt-and-suspenders alongside the hand-written
 // partial unique index on warehouse("isDefault") WHERE "isDefault" = true
 // (see DATABASE.md).
-export async function setDefaultWarehouse(id: string, actorId: string) {
+// actorId is nullable for the same reason as createWarehouse above.
+export async function setDefaultWarehouse(id: string, actorId: string | null) {
   const warehouse = await prisma.$transaction(async (tx) => {
     await tx.warehouse.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
     return tx.warehouse.update({ where: { id }, data: { isDefault: true } });

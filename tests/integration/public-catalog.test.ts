@@ -6,14 +6,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { setStorageProviderForTesting } from "@/modules/storage";
 import { InMemoryStorageProvider } from "../fixtures/in-memory-storage-provider";
+import { uploadTestImage } from "../fixtures/upload-test-image";
 import { createTestUser, deleteTestUser } from "../fixtures/users";
 import { createCategory } from "@/modules/categories/service";
 import { getPublicProductBySlug, listPublicProducts } from "@/modules/products/public-queries";
-import {
-  deleteProductImage,
-  setPrimaryImage,
-  uploadProductImage,
-} from "@/modules/products/product-images";
+import { deleteProductImage, setPrimaryImage } from "@/modules/products/product-images";
 import {
   createProduct,
   createVariants,
@@ -252,11 +249,13 @@ describe("public catalog — never exposes internal fields (real DB)", () => {
       prisma.productVariant.deleteMany({ where: { id: { in: variants.map((v) => v.id) } } }),
     );
 
-    const first = await uploadProductImage(
+    const first = await uploadTestImage(
+      fakeStorage,
       { productId: product.id, file: ONE_PIXEL_PNG, filename: "a.png", contentType: "image/png" },
       actor.id,
     );
-    const second = await uploadProductImage(
+    const second = await uploadTestImage(
+      fakeStorage,
       { productId: product.id, file: ONE_PIXEL_PNG, filename: "b.png", contentType: "image/png" },
       actor.id,
     );
@@ -284,7 +283,8 @@ describe("public catalog — never exposes internal fields (real DB)", () => {
     );
     cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
 
-    const image = await uploadProductImage(
+    const image = await uploadTestImage(
+      fakeStorage,
       { productId: product.id, file: ONE_PIXEL_PNG, filename: "a.png", contentType: "image/png" },
       actor.id,
     );

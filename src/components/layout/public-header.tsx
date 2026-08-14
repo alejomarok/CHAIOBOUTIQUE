@@ -1,9 +1,9 @@
 import Link from "next/link";
 
+import { AuthActions } from "@/components/layout/auth-actions";
 import { CartIconLink } from "@/components/layout/cart-icon-link";
 import { DashboardLink } from "@/components/layout/dashboard-link";
 import { Logo } from "@/components/layout/logo";
-import { Button } from "@/components/ui/button";
 
 const NAV_LINKS = [
   { href: "/", label: "Inicio" },
@@ -27,9 +27,7 @@ export function PublicHeader() {
           </ul>
           <CartIconLink />
           <DashboardLink />
-          <Button asChild variant="outline" size="sm">
-            <Link href="/login">Iniciar sesión</Link>
-          </Button>
+          <AuthActions />
         </nav>
       </div>
     </header>

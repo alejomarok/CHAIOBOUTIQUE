@@ -26,6 +26,7 @@ import {
   seedRolesAndAssignments,
   seedStoreConfiguration,
 } from "@/modules/roles/seed-core";
+import { seedDefaultWarehouse } from "@/modules/warehouses/seed-core";
 
 const EXPECTED_TEST_HOST = "localhost";
 const EXPECTED_TEST_PORT = "56032";
@@ -73,7 +74,14 @@ const ALL_APPLICATION_TABLES = [
 // requires the connection to visibly be the local, disposable Postgres this
 // repo's docker-compose.yml provisions — host, port, AND database name all
 // have to match. Any mismatch throws instead of proceeding; there is no
-// override flag, deliberately.
+// override flag, deliberately. The port (56032) and database name
+// ("chaioboutique_test") checked below can never match postgres-dev
+// (56033/"chaioboutique_dev") — see scripts/with-dev-db.mjs's own,
+// symmetric assertSafeDevDatabase for that database's equivalent guard.
+// Two separate checks, not one shared one: this function's whole point is a
+// destructive TRUNCATE only postgres-test may ever receive, while
+// with-dev-db.mjs never truncates anything — conflating them would blur
+// that distinction.
 //
 // Exported so it's the single implementation of "is this unambiguously the
 // local Docker test database" — playwright.config.ts and
@@ -148,4 +156,10 @@ export async function resetTestDatabase(): Promise<void> {
     locale: env.STORE_LOCALE,
     timezone: env.STORE_TIMEZONE,
   });
+  // Same reference-data seed prisma/seed.ts runs in production — keeps the
+  // test database's baseline representative of a real fresh install (which,
+  // per the Product Flow Stabilization Sprint's dev-DB audit, is exactly the
+  // state that left stock permanently invisible with zero default warehouse
+  // configured).
+  await seedDefaultWarehouse();
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 
 import { cartMutationRateLimiter } from "@/lib/rate-limiters";
+import { timed } from "@/lib/timing";
 import { buildCartMutationRateLimitKey } from "@/modules/cart/rate-limit";
 import { addItemSchema, removeItemSchema, setItemQuantitySchema } from "@/modules/cart/schemas";
 import * as cartService from "@/modules/cart/service";
@@ -72,7 +73,9 @@ export async function clearCartAction(): Promise<cartService.CartDTO> {
 // it is already a safe no-op by construction (see the merge policy doc in
 // modules/cart/service.ts).
 export async function mergeAnonymousCartAction(): Promise<cartService.CartDTO> {
-  const cart = await cartService.mergeAnonymousCartIntoCustomerCart();
+  const cart = await timed("cart.mergeAnonymousCartAction", () =>
+    cartService.mergeAnonymousCartIntoCustomerCart(),
+  );
   revalidatePath("/cart");
   return cart;
 }

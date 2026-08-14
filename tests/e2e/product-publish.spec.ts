@@ -10,12 +10,20 @@ import { createProduct } from "@/modules/products/service-core";
 
 import { ADMIN_FIXTURE } from "./fixture-credentials";
 
+// A minimal valid 1x1 PNG, so the real upload pipeline's file-signature
+// check accepts it as a genuine image, not just a declared MIME type.
+const ONE_PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
+
 // Full admin round trip over real HTTP against TEST_DATABASE_URL, following
-// the exact 8-step flow from the storefront/catalog usability checkpoint:
+// the Product Flow Stabilization Sprint's guided single-page workflow:
 // login → confirm the role-aware dashboard button from the storefront →
-// open an example product missing required data → review its visibility
-// blockers → complete the required fields → publish it → "Ver en la
-// tienda" → confirm it appears in /catalog.
+// open an example product missing required data → review the "why isn't
+// this public" panel → complete category/price/variants → load stock →
+// upload an image → publish → "Ver en la tienda" → confirm it appears in
+// /catalog.
 test.describe("admin product publish flow (real DB, real HTTP)", () => {
   const createdUserIds: string[] = [];
   const cleanup: Array<() => Promise<unknown>> = [];
@@ -28,7 +36,7 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
     }
   });
 
-  test("login as ADMIN, see 'Ir al panel' from the storefront, complete an incomplete product, publish it, and confirm it appears in /catalog", async ({
+  test("login as ADMIN, see 'Ir al panel' from the storefront, complete an incomplete product, load stock, upload an image, publish it, and confirm it appears in /catalog", async ({
     page,
     context,
   }) => {
@@ -69,13 +77,17 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
     await page.goto(`/admin/products/${product.id}`);
     await expect(page.getByRole("heading", { name: uniqueName })).toBeVisible();
 
-    // 4. Review its visibility blockers.
-    await expect(page.getByText("No visible en la tienda")).toBeVisible();
+    // 4. Review why it isn't public — the guided "why not visible" panel,
+    // in plain Spanish, with the exact getVisibilityBlockers() reasons.
+    await expect(
+      page.getByText("Este producto todavía no aparece en la tienda"),
+    ).toBeVisible();
     await expect(page.getByText(/no tiene una categoría asignada/i)).toBeVisible();
     await expect(page.getByText(/no tiene ninguna variante activa/i)).toBeVisible();
+    await expect(page.getByText("Visible en el catálogo")).toBeVisible();
 
     // 5. Complete the required fields: category + price via the edit form.
-    await page.getByRole("link", { name: "Editar" }).click();
+    await page.getByRole("link", { name: "Editar" }).first().click();
     await expect(page).toHaveURL(new RegExp(`/admin/products/${product.id}/edit`));
     await page.getByLabel("Categoría").click();
     await page.getByRole("option", { name: category.name }).click();
@@ -93,17 +105,43 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
     // Pushed after the product-delete cleanup above so it pops first (LIFO)
     // — the variant, created through the UI itself, must be gone before the
     // product it references can be deleted (product_variant_productId_fkey).
-    cleanup.push(() =>
-      prisma.productVariant.deleteMany({ where: { productId: product.id } }),
-    );
+    cleanup.push(() => prisma.productVariant.deleteMany({ where: { productId: product.id } }));
 
-    // 6. Publish it.
-    await expect(page.getByText("No visible en la tienda")).toBeVisible();
+    // 6. Load stock for the new variant — the guided stock section's own
+    // "Cargar stock inicial" action, pre-selecting this exact variant.
+    await page.reload();
+    await expect(page.getByText("Las variantes de este producto todavía no tienen stock")).toBeVisible();
+    await page.getByRole("link", { name: "Cargar stock inicial" }).click();
+    await expect(page).toHaveURL(/\/admin\/inventory\/adjustments/);
+    await page.getByLabel("Depósito").click();
+    await page.getByRole("option").first().click();
+    await page.getByLabel("Cantidad").fill("8");
+    await page.getByLabel("Motivo").fill("Carga inicial (e2e)");
+    await page.getByRole("button", { name: "Registrar movimiento" }).click();
+    await expect(page.getByText("Movimiento registrado.")).toBeVisible();
+
+    // 7. Upload a real image through the actual form.
+    await page.goto(`/admin/products/${product.id}`);
+    await expect(page.getByText("Stock total del producto: 8 unidades")).toBeVisible();
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "publish-flow.png",
+      mimeType: "image/png",
+      buffer: ONE_PIXEL_PNG,
+    });
+    await page.getByRole("button", { name: "Subir imagen" }).click();
+    await expect(page.getByText("Imagen subida correctamente.")).toBeVisible({ timeout: 15_000 });
+
+    // 8. Publish it.
+    await expect(
+      page.getByText("Este producto todavía no aparece en la tienda"),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Publicar" }).click();
     await expect(page.getByText("Producto publicado.")).toBeVisible();
-    await expect(page.getByText("Visible en la tienda")).toBeVisible();
+    await expect(
+      page.getByText("Este producto todavía no aparece en la tienda"),
+    ).not.toBeVisible();
 
-    // 7. Use "Ver en la tienda".
+    // 9. Use "Ver en la tienda".
     const [storefrontPage] = await Promise.all([
       context.waitForEvent("page"),
       page.getByRole("link", { name: /Ver en la tienda/ }).click(),
@@ -111,7 +149,7 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
     await storefrontPage.waitForLoadState();
     await expect(storefrontPage.getByRole("heading", { name: uniqueName })).toBeVisible();
 
-    // 8. Confirm it appears in /catalog.
+    // 10. Confirm it appears in /catalog.
     await page.goto(`/catalog?q=${encodeURIComponent(uniqueName)}`);
     await expect(page.getByText(uniqueName)).toBeVisible();
   });

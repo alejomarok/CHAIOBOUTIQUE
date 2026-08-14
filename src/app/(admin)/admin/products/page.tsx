@@ -11,39 +11,38 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requirePermission } from "@/modules/auth";
+import { getStockByVariantIds } from "@/modules/inventory/service";
+import { computeProductListStatus, type ProductListStatus } from "@/modules/products/list-status";
 import { listProducts } from "@/modules/products/service";
-import { getVisibilityBlockers, type VisibilityBlockerCode } from "@/modules/products/visibility";
+import { isPubliclyVisible } from "@/modules/products/visibility";
+
+import { ProductStatusActions } from "./[id]/product-status-actions";
 
 export const metadata = { title: "Productos" };
 
-const STATUS_LABELS_ES: Record<string, string> = {
-  DRAFT: "Borrador",
-  ACTIVE: "Activo",
-  INACTIVE: "Inactivo",
-  ARCHIVED: "Archivado",
-};
-
-// Short, list-row-sized labels for each getVisibilityBlockers() code — a
-// presentation-only mapping keyed by the blocker's own code, never a second
-// implementation of the visibility rule itself (see modules/products/
-// visibility.ts, the single source of truth this reads from). NOT_ACTIVE_STATUS
-// is handled separately below, using the product's actual current status
-// label instead of a generic string — "Borrador" isn't accurate for an
-// INACTIVE or ARCHIVED product.
-const VISIBILITY_BLOCKER_SHORT_LABELS_ES: Record<
-  Exclude<VisibilityBlockerCode, "NOT_ACTIVE_STATUS">,
-  string
-> = {
-  NO_CATEGORY: "Sin categoría",
-  NO_ACTIVE_VARIANTS: "Sin variante activa",
-  VARIANT_MISSING_PRICE: "Sin precio válido",
+// Presentation-only badge color per computeProductListStatus's result — the
+// status decision itself lives in modules/products/list-status.ts, never
+// here.
+const STATUS_BADGE_VARIANT: Record<ProductListStatus, "default" | "outline" | "secondary"> = {
+  PUBLISHED: "default",
+  READY_TO_PUBLISH: "secondary",
+  OUT_OF_STOCK: "outline",
+  BLOCKED: "outline",
+  DRAFT_INCOMPLETE: "outline",
 };
 
 export default async function ProductsPage() {
   const user = await requirePermission("products.view");
   const canCreate = user.permissions.has("products.create");
+  const canPublish = user.permissions.has("products.publish");
+  const canArchive = user.permissions.has("products.archive");
 
   const products = await listProducts();
+
+  // One batched query for every variant across the whole list — never one
+  // stock lookup per row (see getStockByVariantIds's own doc comment).
+  const allVariantIds = products.flatMap((p) => p.variants.map((v) => v.id));
+  const stockByVariantId = await getStockByVariantIds(allVariantIds);
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,7 +57,7 @@ export default async function ProductsPage() {
           </Button>
         )}
       </div>
-      <div className="border-border overflow-hidden rounded-xl border">
+      <div className="border-border overflow-x-auto rounded-xl border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -66,16 +65,28 @@ export default async function ProductsPage() {
               <TableHead>Categoría</TableHead>
               <TableHead>Marca</TableHead>
               <TableHead>Variantes</TableHead>
+              <TableHead>Stock</TableHead>
               <TableHead>Estado</TableHead>
-              <TableHead>Visibilidad pública</TableHead>
+              <TableHead>Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {products.map((product) => {
+              const activeVariants = product.variants.filter((v) => v.isActive);
+              const totalStock = product.variants.reduce(
+                (sum, v) => sum + (stockByVariantId.get(v.id) ?? 0),
+                0,
+              );
               // Same single rule /catalog and /product/[slug] use — see
-              // DATABASE.md "Public visibility". Never re-implemented here.
-              const blockers = getVisibilityBlockers(product, product.variants);
-              const isPublic = blockers.length === 0;
+              // modules/products/visibility.ts, the source of truth both
+              // this and computeProductListStatus read from. Never
+              // re-implemented here.
+              const isPublic = isPubliclyVisible(product, product.variants);
+              const { status: listStatus, label: statusLabel } = computeProductListStatus(
+                product,
+                product.variants,
+                totalStock,
+              );
 
               return (
                 <TableRow key={product.id}>
@@ -86,26 +97,33 @@ export default async function ProductsPage() {
                   </TableCell>
                   <TableCell>{product.category?.name ?? "—"}</TableCell>
                   <TableCell>{product.brand?.name ?? "—"}</TableCell>
-                  <TableCell>{product.variants.filter((v) => v.isActive).length}</TableCell>
+                  <TableCell>{activeVariants.length}</TableCell>
+                  <TableCell>{totalStock}</TableCell>
                   <TableCell>
-                    <Badge variant={product.status === "ACTIVE" ? "default" : "outline"}>
-                      {STATUS_LABELS_ES[product.status]}
-                    </Badge>
+                    <Badge variant={STATUS_BADGE_VARIANT[listStatus]}>{statusLabel}</Badge>
                   </TableCell>
                   <TableCell>
-                    {isPublic ? (
-                      <Badge>Público</Badge>
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {blockers.map((blocker) => (
-                          <Badge key={blocker.code} variant="outline" className="text-xs">
-                            {blocker.code === "NOT_ACTIVE_STATUS"
-                              ? STATUS_LABELS_ES[product.status]
-                              : VISIBILITY_BLOCKER_SHORT_LABELS_ES[blocker.code]}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/admin/products/${product.id}`}>Ver</Link>
+                      </Button>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/admin/products/${product.id}/edit`}>Editar</Link>
+                      </Button>
+                      <ProductStatusActions
+                        productId={product.id}
+                        status={product.status}
+                        canPublish={canPublish}
+                        canArchive={canArchive}
+                      />
+                      {isPublic && (
+                        <Button asChild size="sm" variant="ghost">
+                          <Link href={`/product/${product.slug}`} target="_blank">
+                            Ver en la tienda ↗
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               );

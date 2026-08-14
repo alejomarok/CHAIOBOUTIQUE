@@ -43,6 +43,13 @@ describe("LoginForm", () => {
     signInEmailMock.mockReset();
     resolvePostLoginDestinationActionMock.mockReset();
     mergeAnonymousCartActionMock.mockReset();
+    // The real Server Action always returns a Promise; the component now
+    // chains .catch() directly onto its return value (running it
+    // concurrently with resolvePostLoginDestinationAction rather than
+    // awaiting each sequentially) — a mock without this default would
+    // return plain `undefined`, and `undefined.catch` would throw before
+    // any individual test gets a chance to override it.
+    mergeAnonymousCartActionMock.mockResolvedValue(undefined);
   });
 
   afterEach(cleanup);
@@ -181,6 +188,46 @@ describe("LoginForm", () => {
       expect(screen.getByRole("button", { name: "Iniciar sesión" })).not.toBeDisabled(),
     );
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves the post-login destination and merges the cart concurrently, not sequentially", async () => {
+    // Both calls are started before either resolves — proves the two
+    // network round trips overlap instead of one waiting on the other,
+    // which is the whole point of the performance fix.
+    let resolveDestination: (value: string) => void;
+    resolvePostLoginDestinationActionMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDestination = resolve;
+        }),
+    );
+    let resolveCartMerge: () => void;
+    mergeAnonymousCartActionMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCartMerge = resolve;
+        }),
+    );
+    signInEmailMock.mockResolvedValue({ error: null });
+
+    render(<LoginForm />);
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "admin@chaioboutique.local" },
+    });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
+
+    // Both are in flight simultaneously — neither had to wait on the other
+    // to even start.
+    await waitFor(() => expect(resolvePostLoginDestinationActionMock).toHaveBeenCalled());
+    await waitFor(() => expect(mergeAnonymousCartActionMock).toHaveBeenCalled());
+    expect(replaceMock).not.toHaveBeenCalled();
+
+    resolveCartMerge!();
+    resolveDestination!("/admin");
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/admin"));
   });
 
   it("ignores a second submit once the button has gone into its loading state", async () => {

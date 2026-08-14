@@ -25,6 +25,7 @@ import {
   seedRolesAndAssignments,
   seedStoreConfiguration,
 } from "@/modules/roles/seed-core";
+import { printWarehouseSeedSummary, seedDefaultWarehouse } from "@/modules/warehouses/seed-core";
 
 async function seedInitialAdmin() {
   if (!env.INITIAL_ADMIN_EMAIL || !env.INITIAL_ADMIN_PASSWORD || !env.INITIAL_ADMIN_NAME) {
@@ -93,6 +94,9 @@ async function main() {
 
   const sizeSeedSummary = await seedDefaultSizeGroups();
   printSizeSeedSummary(sizeSeedSummary);
+
+  const warehouseSeedSummary = await seedDefaultWarehouse();
+  printWarehouseSeedSummary(warehouseSeedSummary);
 }
 
 main()

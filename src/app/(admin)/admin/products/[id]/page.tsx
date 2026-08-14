@@ -7,8 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/modules/auth";
 import { listSizeOptions, listColors } from "@/modules/attributes/service";
-import { getTotalStockForVariants } from "@/modules/inventory/service";
-import { computeProductCompletionSteps } from "@/modules/products/completion-checklist";
+import {
+  getTotalStockForVariants,
+  listInventoryBalances,
+} from "@/modules/inventory/service";
+import {
+  computeProductCompletionSteps,
+  type ProductCompletionStepKey,
+  type ProductCompletionStepStatus,
+} from "@/modules/products/completion-checklist";
 import { getProductImagePublicUrl } from "@/modules/products/product-images";
 import { getProductById } from "@/modules/products/service";
 import { getVisibilityBlockers } from "@/modules/products/visibility";
@@ -24,6 +31,34 @@ const STATUS_LABELS_ES: Record<string, string> = {
   ARCHIVED: "Archivado",
 };
 
+// Each guided step's action button — plain-Spanish label + where it goes.
+// "#variantes"/"#stock"/"#imagenes" jump to that section further down this
+// same single page (see the sprint's decision: guided sections, not a
+// multi-screen wizard). "publication" has no link of its own: the actual
+// Publicar/Despublicar action already lives in the page header
+// (ProductStatusActions) — duplicating that server call here would mean two
+// places that can trigger it, so this step just points the admin back up.
+const STEP_ACTIONS: Record<
+  ProductCompletionStepKey,
+  { label: string; href?: string } | null
+> = {
+  basicInfo: { label: "Editar información" },
+  categoryAndSize: { label: "Asignar categoría" },
+  variants: { label: "Crear variantes", href: "#variantes" },
+  stock: { label: "Cargar stock", href: "#stock" },
+  images: { label: "Subir imágenes", href: "#imagenes" },
+  publication: null,
+};
+
+const STEP_STATUS_BADGE: Record<
+  ProductCompletionStepStatus,
+  { label: string; variant: "default" | "outline" | "secondary" | "destructive" }
+> = {
+  complete: { label: "Completo", variant: "default" },
+  pending: { label: "Pendiente", variant: "secondary" },
+  attention: { label: "Requiere atención", variant: "destructive" },
+};
+
 export const metadata = { title: "Detalle de producto" };
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,38 +68,50 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const [product, colors] = await Promise.all([getProductById(id), listColors()]);
   if (!product) notFound();
 
+  const activeVariants = product.variants.filter((v) => v.isActive);
+  const variantIds = product.variants.map((v) => v.id);
+
   // Required behavior #3: the variant matrix only ever offers options from
   // the product's own SizeGroup, never the full catalog — a size-less
   // product (no sizeGroupId) gets an empty list, not every size that
-  // exists anywhere.
-  const sizeOptions = product.sizeGroupId ? await listSizeOptions(product.sizeGroupId) : [];
+  // exists anywhere. None of these three depend on each other — only on
+  // `product`, already resolved above — so they run as one round trip each,
+  // concurrently, instead of three sequential ones (previously
+  // listSizeOptions was awaited on its own before the stock Promise.all
+  // even though nothing in that Promise.all needs sizeOptions).
+  const [sizeOptions, totalStock, balances] = await Promise.all([
+    product.sizeGroupId ? listSizeOptions(product.sizeGroupId) : Promise.resolve([]),
+    getTotalStockForVariants(activeVariants.map((v) => v.id)),
+    listInventoryBalances({ variantIds }),
+  ]);
 
-  const activeVariants = product.variants.filter((v) => v.isActive);
-  const totalStock = await getTotalStockForVariants(activeVariants.map((v) => v.id));
-  // See DATABASE.md "Public visibility" — this is the exact, single rule
+  // See modules/products/visibility.ts — this is the exact, single rule
   // both /catalog and /product/[slug] use, surfaced here so an admin never
   // has to guess why a product isn't showing up publicly.
   const visibilityBlockers = getVisibilityBlockers(product, product.variants);
   const isPubliclyVisible = visibilityBlockers.length === 0;
 
-  // Required behavior #4: "provide a compact completion checklist" — progress
-  // guidance for a product mid-setup, distinct from visibilityBlockers above
-  // (the authoritative publish rule). A step here can be "optional" (size
-  // group, stock, images) in a way a publish blocker never is.
   const completionSteps = computeProductCompletionSteps({
+    hasPrice: product.defaultPriceAmount !== null,
     hasCategory: product.categoryId !== null,
     hasSizeGroup: product.sizeGroupId !== null,
-    hasPrice: product.defaultPriceAmount !== null,
     hasVariants: activeVariants.length > 0,
     hasStock: totalStock > 0,
     hasImages: product.images.length > 0,
     isPublished: product.status === "ACTIVE",
   });
-  const pendingRequiredSteps = completionSteps.filter((step) => !step.optional && !step.done);
 
   const canViewCost = user.permissions.has("products.view_cost");
   const canEdit = user.permissions.has("products.edit");
   const canManageImages = user.permissions.has("product_images.manage");
+  const canAdjustStock = user.permissions.has("stock.adjust");
+
+  const overallStatusLabel =
+    product.status === "ACTIVE"
+      ? "Publicado"
+      : completionSteps.some((s) => s.status === "attention")
+        ? "Incompleto"
+        : "Borrador";
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
@@ -97,87 +144,128 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             canPublish={user.permissions.has("products.publish")}
             canArchive={user.permissions.has("products.archive")}
           />
+          {isPubliclyVisible && (
+            <Button asChild variant="ghost">
+              <Link href={`/product/${product.slug}`} target="_blank">
+                Ver en la tienda ↗
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
+      {/* Summary card — the answer to "what state is this product in" at a
+          glance, in plain Spanish, no internal terminology. */}
       <Card>
         <CardHeader>
-          <CardTitle>Visibilidad pública</CardTitle>
+          <CardTitle>Resumen</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Badge variant={isPubliclyVisible ? "default" : "outline"}>
-              {isPubliclyVisible ? "Visible en la tienda" : "No visible en la tienda"}
-            </Badge>
-            {isPubliclyVisible && (
-              <Link
-                href={`/product/${product.slug}`}
-                target="_blank"
-                className="text-muted-foreground text-xs hover:underline"
-              >
-                Ver en la tienda ↗
-              </Link>
-            )}
+        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <p className="text-muted-foreground text-xs">Estado</p>
+            <p className="font-medium">{overallStatusLabel}</p>
           </div>
-          {!isPubliclyVisible && (
-            <div className="border-border bg-muted/40 rounded-lg border p-3">
-              <p className="mb-1.5 text-sm font-medium">Por qué no aparece en /catalog:</p>
-              <ul className="text-muted-foreground list-inside list-disc text-sm">
-                {visibilityBlockers.map((blocker) => (
-                  <li key={blocker.code}>{blocker.message}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <p className="text-muted-foreground text-xs">Variantes activas</p>
-              <p>
-                {activeVariants.length} de {product.variants.length}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground text-xs">Stock total</p>
-              <p>{totalStock} unidades</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground text-xs">Imágenes</p>
-              <p>{product.images.length}</p>
-            </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Visible en el catálogo</p>
+            <p className="font-medium">{isPubliclyVisible ? "Sí" : "No"}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Precio</p>
+            <p className="font-medium">
+              {product.defaultPriceAmount !== null
+                ? minorUnitsToDisplay(product.defaultPriceAmount)
+                : "Sin definir"}
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Variantes activas</p>
+            <p className="font-medium">
+              {activeVariants.length} de {product.variants.length}
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Stock total</p>
+            <p className="font-medium">{totalStock} unidades</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Imágenes</p>
+            <p className="font-medium">{product.images.length}</p>
           </div>
         </CardContent>
       </Card>
 
+      {/* Prominent "why isn't this public" panel — only shown when it
+          actually isn't, per required behavior #7. */}
+      {!isPubliclyVisible && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardHeader>
+            <CardTitle>Este producto todavía no aparece en la tienda</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-2 text-sm">
+              {visibilityBlockers.map((blocker) => {
+                const step = completionSteps.find(
+                  (s) =>
+                    (blocker.code === "NOT_ACTIVE_STATUS" && s.key === "publication") ||
+                    (blocker.code === "NO_CATEGORY" && s.key === "categoryAndSize") ||
+                    (blocker.code === "NO_ACTIVE_VARIANTS" && s.key === "variants") ||
+                    (blocker.code === "VARIANT_MISSING_PRICE" && s.key === "basicInfo"),
+                );
+                const action = step ? STEP_ACTIONS[step.key] : null;
+                return (
+                  <li key={blocker.code} className="flex flex-wrap items-center justify-between gap-2">
+                    <span>{blocker.message}</span>
+                    {action &&
+                      (action.href ? (
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={action.href}>{action.label}</Link>
+                        </Button>
+                      ) : (
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/admin/products/${product.id}/edit`}>{action.label}</Link>
+                        </Button>
+                      ))}
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Guided steps — the 6-step checklist, each with its own status and
+          direct action. */}
       <Card>
         <CardHeader>
-          <CardTitle>Próximos pasos</CardTitle>
+          <CardTitle>Pasos para completar el producto</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {pendingRequiredSteps.length > 0 && (
-            <p className="text-muted-foreground text-sm">
-              Completá lo siguiente antes de publicar: {pendingRequiredSteps.map((s) => s.label).join(", ")}.
-            </p>
-          )}
-          <ul className="grid gap-1.5 sm:grid-cols-2">
-            {completionSteps.map((step) => (
-              <li key={step.key} className="flex items-center gap-2 text-sm">
-                <span
-                  aria-hidden
-                  className={
-                    step.done
-                      ? "flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px]"
-                      : "border-muted-foreground/40 h-4 w-4 rounded-full border"
-                  }
-                >
-                  {step.done ? "✓" : ""}
-                </span>
-                <span className={step.done ? "" : "text-muted-foreground"}>
-                  {step.label}
-                  {step.optional && !step.done && " (opcional)"}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {completionSteps.map((step) => {
+            const badge = STEP_STATUS_BADGE[step.status];
+            const action = STEP_ACTIONS[step.key];
+            const actionHref = action?.href ?? `/admin/products/${product.id}/edit`;
+            return (
+              <div
+                key={step.key}
+                className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{step.label}</span>
+                    <Badge variant={badge.variant}>{badge.label}</Badge>
+                  </div>
+                  {step.detail && (
+                    <p className="text-muted-foreground mt-0.5 text-sm">{step.detail}</p>
+                  )}
+                </div>
+                {action && step.status !== "complete" && (
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={actionHref}>{action.label}</Link>
+                  </Button>
+                )}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
@@ -215,7 +303,73 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         </CardContent>
       </Card>
 
-      <Card>
+      {/* Stock — every warehouse's balance for every variant, never a
+          browser-side sum: totalStock above and each row's quantity both
+          come straight from modules/inventory/service.ts's server-side
+          aggregation (getTotalStockForVariants / listInventoryBalances). */}
+      <Card id="stock">
+        <CardHeader>
+          <CardTitle>Stock</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {activeVariants.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              Este producto todavía no tiene variantes activas — creá una variante para poder
+              cargar stock.
+            </p>
+          ) : balances.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              Las variantes de este producto todavía no tienen stock cargado.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-muted-foreground text-left text-xs">
+                    <th className="pb-2 pr-3 font-medium">Talle</th>
+                    <th className="pb-2 pr-3 font-medium">Color</th>
+                    <th className="pb-2 pr-3 font-medium">SKU</th>
+                    <th className="pb-2 pr-3 font-medium">Depósito</th>
+                    <th className="pb-2 font-medium">Disponible</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {balances.map((balance) => (
+                    <tr key={balance.id} className="border-border border-t">
+                      <td className="py-1.5 pr-3">{balance.variant.sizeOption?.label ?? "—"}</td>
+                      <td className="py-1.5 pr-3">{balance.variant.color?.displayName ?? "—"}</td>
+                      <td className="py-1.5 pr-3 font-mono text-xs">{balance.variant.sku}</td>
+                      <td className="py-1.5 pr-3">{balance.warehouse.name}</td>
+                      <td className="py-1.5">{balance.quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-sm font-medium">Stock total del producto: {totalStock} unidades</p>
+          {canAdjustStock && (
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  href={
+                    activeVariants[0]
+                      ? `/admin/inventory/adjustments?variantId=${activeVariants[0].id}`
+                      : "/admin/inventory/adjustments"
+                  }
+                >
+                  Cargar stock inicial
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/admin/inventory/movements">Ver movimientos</Link>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card id="imagenes">
         <CardHeader>
           <CardTitle>Imágenes</CardTitle>
         </CardHeader>
@@ -238,7 +392,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="variantes">
         <CardHeader>
           <CardTitle>Variantes</CardTitle>
         </CardHeader>

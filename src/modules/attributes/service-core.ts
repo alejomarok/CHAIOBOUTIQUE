@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db-core";
 import { slugify } from "@/lib/slug";
+import { timed } from "@/lib/timing";
 import { recordAuditLog } from "@/modules/audit/index-core";
 
 // Node-safe core: no "server-only" import, and imports db-core.ts/
@@ -124,10 +125,12 @@ export async function updateSizeGroup(id: string, input: UpdateSizeGroupInput, a
 // alphabetically by label (a plain string sort would put "10" before "9").
 // See required behavior #6 and tests/unit/attributes-service.test.ts.
 export async function listSizeOptions(sizeGroupId: string) {
-  return prisma.sizeOption.findMany({
-    where: { sizeGroupId },
-    orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
-  });
+  return timed("attributes.listSizeOptions", () =>
+    prisma.sizeOption.findMany({
+      where: { sizeGroupId },
+      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    }),
+  );
 }
 
 export interface CreateSizeOptionInput {
@@ -200,7 +203,9 @@ export async function updateSizeOption(id: string, input: UpdateSizeOptionInput,
 }
 
 export async function listColors() {
-  return prisma.color.findMany({ orderBy: [{ displayOrder: "asc" }, { displayName: "asc" }] });
+  return timed("attributes.listColors", () =>
+    prisma.color.findMany({ orderBy: [{ displayOrder: "asc" }, { displayName: "asc" }] }),
+  );
 }
 
 export interface CreateColorInput {

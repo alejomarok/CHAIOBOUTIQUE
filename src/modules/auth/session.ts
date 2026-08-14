@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { cache } from "react";
 
 import { auth } from "@/lib/auth";
+import { timed } from "@/lib/timing";
 import type { Permission } from "@/modules/permissions/catalog";
 import { getUserPermissions } from "@/modules/roles/service";
 
@@ -19,7 +20,10 @@ export interface CurrentUser {
 // Cached per request (React cache()): several requirePermission()/
 // getCurrentUser() calls during the same render hit the database once.
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await timed("auth.getSession", async () => {
+    const requestHeaders = await headers();
+    return auth.api.getSession({ headers: requestHeaders });
+  });
 
   if (!session) return null;
 
@@ -32,7 +36,9 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const deletedAt = (user as unknown as { deletedAt?: Date | string | null }).deletedAt ?? null;
   if (!isActive || deletedAt) return null;
 
-  const { roles, permissions } = await getUserPermissions(user.id);
+  const { roles, permissions } = await timed("getUserPermissions", () =>
+    getUserPermissions(user.id),
+  );
 
   return {
     id: user.id,

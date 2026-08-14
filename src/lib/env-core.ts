@@ -26,6 +26,15 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DIRECT_URL: z.string().min(1, "DIRECT_URL is required"),
   TEST_DATABASE_URL: optional(z.string().min(1)),
+  // Optional local Postgres for `npm run dev:local` (see scripts/
+  // with-dev-db.mjs and the Local Development Performance checkpoint in
+  // DATABASE.md) — never read directly by app code; with-dev-db.mjs forces
+  // DATABASE_URL/DIRECT_URL to this value only for the duration of the
+  // wrapped command, the same pattern with-test-db.mjs uses for
+  // TEST_DATABASE_URL. Plain `npm run dev` is unaffected and keeps using
+  // whatever DATABASE_URL/DIRECT_URL are already set to (Supabase by
+  // default) — this never silently changes that.
+  DEV_DATABASE_URL: optional(z.string().min(1)),
 
   // Better Auth
   BETTER_AUTH_SECRET: z.string().min(1, "BETTER_AUTH_SECRET is required"),

@@ -142,20 +142,38 @@ risk in a way most other mutations aren't. See
 
 ## File upload validation (product images)
 
-`src/modules/storage/validation.ts`, called from `modules/products/product-images.ts`'s
-`uploadProductImage`, layers three checks — none alone is trusted:
+Product images upload directly from the browser to Supabase Storage — the file's bytes never pass
+through this server in transit (see [INTEGRATIONS.md](./INTEGRATIONS.md)). That means the
+security boundary isn't "validate what we received," it's "authorize the write, then validate
+what actually landed":
 
-1. **MIME allowlist + extension cross-check** (`validateUpload`) — the declared `Content-Type`
-   must be in an explicit per-caller allowlist (product images: JPEG/PNG/WebP only), and the file
-   extension must match it.
-2. **File-signature ("magic bytes") check** (`validateImageFileSignature`) — reads the first
-   bytes of the actual uploaded buffer (JPEG `FF D8 FF`, PNG `89 50 4E 47 0D`, WebP `RIFF`…`WEBP`
-   at offset 8) and rejects a mismatch between the declared `Content-Type` and what the bytes
-   actually are. A browser or a crafted request can lie about `Content-Type`; it can't fake the
-   file's own leading bytes without producing an invalid image.
-3. **Dimension bound** (`image-size`, a pure-JS decoder — no `sharp`/native dependency this
-   phase, see [INTEGRATIONS.md](./INTEGRATIONS.md)) rejects anything over 6000px per side before
-   it's ever stored.
+1. **Authorization + path generation** (`prepareProductImageUpload`) — requires
+   `product_images.manage` and a real product, and always **server**-generates the object path
+   (`products/{productId}/{uuid}.{ext}` via `buildObjectPath`) — a client can never choose where
+   its upload lands or supply an arbitrary bucket/path. The signed upload URL/token this returns
+   authorizes a single write to exactly that path and nothing else; no Supabase API key of any
+   kind is ever sent to the browser.
+2. **Path re-validation** (`finalizeProductImageUpload`) — re-checks
+   `product_images.manage`, then validates the bucket/path the client echoes back against a
+   strict regex (`products/{productId}/{uuid}.{jpg|jpeg|png|webp}`) before trusting it at all,
+   rejecting a hand-crafted path, another product's path, or path-traversal characters.
+3. **MIME allowlist + extension cross-check** (`validateUpload`, called from
+   `prepareProductImageUpload`) — the declared `Content-Type` must be in an explicit per-caller
+   allowlist (product images: JPEG/PNG/WebP only), and the file extension must match it.
+4. **File-signature ("magic bytes") check** (`validateImageFileSignature`, called from
+   `finalizeProductImageUpload` against bytes **downloaded back** from storage, since the server
+   never saw them in transit) — reads the first bytes of the actual stored object (JPEG
+   `FF D8 FF`, PNG `89 50 4E 47 0D`, WebP `RIFF`…`WEBP` at offset 8) and rejects a mismatch
+   between the declared `Content-Type` and what the bytes actually are. A browser or a crafted
+   request can lie about `Content-Type`; it can't fake the file's own leading bytes without
+   producing an invalid image.
+5. **Dimension bound** (`image-size`, a pure-JS decoder — no `sharp`/native dependency this
+   phase, see [INTEGRATIONS.md](./INTEGRATIONS.md)) rejects anything over 6000px per side,
+   computed from the downloaded bytes — never a client-reported dimension.
+
+If any of steps 3-5 fails, or the subsequent `ProductImage` DB insert fails, the just-uploaded
+storage object is deleted (best-effort, logged on failure) rather than left orphaned with no DB
+row pointing at it.
 
 The generated storage path (`buildObjectPath`) never uses the caller-supplied filename — it's a
 generated UUID under `entityType/entityId/`, which also rules out path traversal.

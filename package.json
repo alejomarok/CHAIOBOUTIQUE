@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "node scripts/with-dev-db.mjs next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -15,6 +16,9 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "preflight:size-groups": "tsx scripts/preflight-size-groups-migration.ts",
+    "db:dev:up": "docker compose up -d postgres-dev",
+    "db:dev:migrate": "node scripts/with-dev-db.mjs prisma migrate deploy",
+    "db:dev:seed": "node scripts/with-dev-db.mjs prisma db seed",
     "db:test:migrate": "node scripts/with-test-db.mjs prisma migrate deploy",
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",

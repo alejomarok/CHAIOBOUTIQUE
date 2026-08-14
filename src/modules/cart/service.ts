@@ -2,6 +2,7 @@ import "server-only";
 
 import { minorUnitsToDisplay } from "@/lib/money";
 import { prisma } from "@/lib/db";
+import { timed } from "@/lib/timing";
 import { getInventoryBalance } from "@/modules/inventory/service";
 import { getEffectivePrice } from "@/modules/products/pricing";
 import { getProductImagePublicUrl } from "@/modules/products/product-images";
@@ -29,6 +30,7 @@ import {
   peekAnonymousCartToken,
   resolveCartIdentityForMutation,
   resolveCartIdentityReadOnly,
+  type CartIdentity,
 } from "./identity";
 import { computeCartItemIssues, isBlockingIssue, type CartItemIssue } from "./issues";
 import { computeMergedQuantity } from "./merge-policy";
@@ -72,6 +74,20 @@ export interface CartDTO {
 
 function emptyCartDTO(currency: string): CartDTO {
   return { id: null, currency, itemCount: 0, items: [], subtotalDisplay: minorUnitsToDisplay(0n, { currency }), hasIssues: false };
+}
+
+// Same shape as emptyCartDTO, but for a cart row that genuinely exists (a
+// real id) and is merely known to have zero items yet — see
+// getOrCreateCartForIdentity's freshlyCreated fast path.
+function emptyCartDTOForCart(cart: Cart): CartDTO {
+  return {
+    id: cart.id,
+    currency: cart.currency,
+    itemCount: 0,
+    items: [],
+    subtotalDisplay: minorUnitsToDisplay(0n, { currency: cart.currency }),
+    hasIssues: false,
+  };
 }
 
 // =============================================================================
@@ -208,26 +224,52 @@ function anonymousExpiryDate(): Date {
   return new Date(Date.now() + ANONYMOUS_CART_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
+interface CartRowResult {
+  cart: Cart;
+  // True only for a row this call just inserted — a brand-new Cart can
+  // never have items yet, so a DTO-producing caller can skip toCartDTO's
+  // cartItem query entirely (measured at ~2.4s against the real dev
+  // database for an empty result — the join shape costs that even with
+  // zero matching rows) instead of re-deriving the same "no items" answer
+  // the database would have given anyway.
+  freshlyCreated: boolean;
+}
+
 // Server-Action-only: may issue a brand-new anonymous cookie (see
 // resolveCartIdentityForMutation/issueAnonymousCartCookie), which throws if
-// called during a Server Component render.
-async function getOrCreateCartRow(): Promise<Cart> {
-  const identity = await resolveCartIdentityForMutation();
-
+// called during a Server Component render. Split from getOrCreateCartRow
+// below so a caller that has *already* resolved the identity this request
+// (mergeAnonymousCartIntoCustomerCart) never pays a second, redundant
+// resolveCartIdentityForMutation/getCurrentUser round trip — each one costs
+// a real session+permission DB lookup, ~1.4s measured against the real
+// (remote) dev database, so resolving it twice in one action genuinely
+// doubles that cost for no reason.
+async function getOrCreateCartRowWithFreshness(identity: CartIdentity): Promise<CartRowResult> {
   if (identity.type === "user") {
-    const existing = await findActiveCartForUser(identity.userId);
-    if (existing) return existing;
-    return createCartForUser(identity.userId);
+    const existing = await timed("cart.findActiveCartForUser", () =>
+      findActiveCartForUser(identity.userId),
+    );
+    if (existing) return { cart: existing, freshlyCreated: false };
+    const created = await timed("cart.createCartForUser", () =>
+      createCartForUser(identity.userId),
+    );
+    return { cart: created, freshlyCreated: true };
   }
 
-  const { currency } = await getStoreConfiguration();
+  const { currency } = await timed("cart.getStoreConfiguration", () => getStoreConfiguration());
 
-  if (identity.token) {
-    const existing = await prisma.cart.findUnique({ where: { anonymousToken: identity.token } });
+  const token = identity.token;
+  if (token) {
+    const existing = await timed("cart.findByAnonymousToken", () =>
+      prisma.cart.findUnique({ where: { anonymousToken: token } }),
+    );
     if (existing && isAnonymousCartUsable(existing)) {
       // Touch the expiry forward on every active use — an anonymous cart
       // being actively shopped must not expire mid-session.
-      return prisma.cart.update({ where: { id: existing.id }, data: { expiresAt: anonymousExpiryDate() } });
+      const touched = await timed("cart.touchExpiry", () =>
+        prisma.cart.update({ where: { id: existing.id }, data: { expiresAt: anonymousExpiryDate() } }),
+      );
+      return { cart: touched, freshlyCreated: false };
     }
     // The token names a cart that's gone stale (expired) or is no longer
     // ACTIVE (e.g. already MERGED from a prior sign-in using the same
@@ -235,15 +277,30 @@ async function getOrCreateCartRow(): Promise<Cart> {
     // The old row is left as-is; it's already correctly not reachable.
   }
 
-  const newToken = await issueAnonymousCartCookie();
-  return prisma.cart.create({
-    data: {
-      anonymousToken: newToken,
-      status: "ACTIVE",
-      currency,
-      expiresAt: anonymousExpiryDate(),
-    },
-  });
+  const newToken = await timed("cart.issueAnonymousCartCookie", () => issueAnonymousCartCookie());
+  const created = await timed("cart.createAnonymousCart", () =>
+    prisma.cart.create({
+      data: {
+        anonymousToken: newToken,
+        status: "ACTIVE",
+        currency,
+        expiresAt: anonymousExpiryDate(),
+      },
+    }),
+  );
+  return { cart: created, freshlyCreated: true };
+}
+
+async function getOrCreateCartRowForIdentity(identity: CartIdentity): Promise<Cart> {
+  const { cart } = await getOrCreateCartRowWithFreshness(identity);
+  return cart;
+}
+
+async function getOrCreateCartRow(): Promise<Cart> {
+  const identity = await timed("cart.resolveIdentity(mutation)", () =>
+    resolveCartIdentityForMutation(),
+  );
+  return getOrCreateCartRowForIdentity(identity);
 }
 
 // Read-only lookup for display paths (Server Components) — never creates a
@@ -266,28 +323,30 @@ async function findExistingCartRow(): Promise<Cart | null> {
 // =============================================================================
 
 async function toCartDTO(cart: Cart): Promise<CartDTO> {
-  const items = await prisma.cartItem.findMany({
-    where: { cartId: cart.id },
-    orderBy: { createdAt: "asc" },
-    include: {
-      productVariant: {
-        include: {
-          sizeOption: true,
-          color: true,
-          product: {
-            include: {
-              variants: { select: { isActive: true, priceAmount: true } },
-              // The product's primary image — same source the storefront's
-              // own product card/detail page use (see
-              // components/catalog/product-card.tsx); this app has no
-              // separate variant-scoped image selection anywhere else.
-              images: { where: { isPrimary: true }, take: 1 },
+  const items = await timed("cart.toCartDTO.findItems", () =>
+    prisma.cartItem.findMany({
+      where: { cartId: cart.id },
+      orderBy: { createdAt: "asc" },
+      include: {
+        productVariant: {
+          include: {
+            sizeOption: true,
+            color: true,
+            product: {
+              include: {
+                variants: { select: { isActive: true, priceAmount: true } },
+                // The product's primary image — same source the storefront's
+                // own product card/detail page use (see
+                // components/catalog/product-card.tsx); this app has no
+                // separate variant-scoped image selection anywhere else.
+                images: { where: { isPrimary: true }, take: 1 },
+              },
             },
           },
         },
       },
-    },
-  });
+    }),
+  );
 
   let subtotal = 0n;
   let itemCount = 0;
@@ -370,11 +429,22 @@ export async function getCart(): Promise<CartDTO> {
   return toCartDTO(cart);
 }
 
+// Shares the already-resolved identity with a caller that has one (see
+// getOrCreateCartRowForIdentity above) instead of resolving it again.
+async function getOrCreateCartForIdentity(identity: CartIdentity): Promise<CartDTO> {
+  const { cart, freshlyCreated } = await getOrCreateCartRowWithFreshness(identity);
+  // A row this call just inserted can't have items yet — skip toCartDTO's
+  // query instead of re-deriving "zero items" the expensive way. See
+  // CartRowResult's doc comment.
+  if (freshlyCreated) return emptyCartDTOForCart(cart);
+  return toCartDTO(cart);
+}
+
 // Server-Action-only. Guarantees a real Cart row exists (creating one, and
 // the anonymous cookie alongside it, if needed) and returns its DTO.
 export async function getOrCreateCart(): Promise<CartDTO> {
-  const cart = await getOrCreateCartRow();
-  return toCartDTO(cart);
+  const identity = await resolveCartIdentityForMutation();
+  return getOrCreateCartForIdentity(identity);
 }
 
 export interface AddItemInput {
@@ -487,12 +557,13 @@ export async function clearCart(): Promise<CartDTO> {
 //      (now-stale) anonymous token finds nothing ACTIVE to merge and is a
 //      pure no-op — never a second merge of the same items.
 export async function mergeAnonymousCartIntoCustomerCart(): Promise<CartDTO> {
-  const identity = await resolveCartIdentityForMutation();
+  const identity = await timed("cart.merge.resolveIdentity", () => resolveCartIdentityForMutation());
   if (identity.type !== "user") {
     // Not signed in as a CUSTOMER (e.g. staff/admin, or a genuine guest) —
     // nothing to merge into. Callers only invoke this right after a
-    // CUSTOMER sign-in/registration succeeds.
-    return getOrCreateCart();
+    // CUSTOMER sign-in/registration succeeds. Shares the identity already
+    // resolved above — see getOrCreateCartRowForIdentity's doc comment.
+    return getOrCreateCartForIdentity(identity);
   }
 
   // Raw cookie peek, not resolveCartIdentityReadOnly: the visitor is
@@ -501,7 +572,7 @@ export async function mergeAnonymousCartIntoCustomerCart(): Promise<CartDTO> {
   // leftover anonymous cookie from their pre-login browsing. See
   // identity.ts's doc comment on peekAnonymousCartToken.
   const cookieToken = await peekAnonymousCartToken();
-  if (!cookieToken) return getOrCreateCart();
+  if (!cookieToken) return getOrCreateCartForIdentity(identity);
 
   const anonymousCart = await prisma.cart.findUnique({
     where: { anonymousToken: cookieToken },
@@ -514,7 +585,7 @@ export async function mergeAnonymousCartIntoCustomerCart(): Promise<CartDTO> {
     // This is also what makes a repeated merge request idempotent: the
     // second call finds status !== "ACTIVE" here and simply no-ops.
     await clearAnonymousCartCookie();
-    return getOrCreateCart();
+    return getOrCreateCartForIdentity(identity);
   }
 
   const customerCart =

@@ -1,6 +1,7 @@
 "use server";
 
 import { isSafeInternalPath } from "@/lib/safe-redirect";
+import { timed } from "@/lib/timing";
 import {
   getCurrentUser,
   isAuthorizedForPath,
@@ -20,12 +21,14 @@ import {
 export async function resolvePostLoginDestinationAction(
   requestedRedirect?: string | null,
 ): Promise<string> {
-  const user = await getCurrentUser();
-  if (!user) return "/login";
+  return timed("login.resolvePostLoginDestinationAction", async () => {
+    const user = await getCurrentUser();
+    if (!user) return "/login";
 
-  if (isSafeInternalPath(requestedRedirect) && isAuthorizedForPath(requestedRedirect, user)) {
-    return requestedRedirect;
-  }
+    if (isSafeInternalPath(requestedRedirect) && isAuthorizedForPath(requestedRedirect, user)) {
+      return requestedRedirect;
+    }
 
-  return resolvePostLoginDestination(user);
+    return resolvePostLoginDestination(user);
+  });
 }

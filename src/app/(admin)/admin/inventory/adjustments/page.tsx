@@ -9,9 +9,14 @@ import { TransferForm } from "./transfer-form";
 
 export const metadata = { title: "Ajuste de inventario" };
 
-export default async function InventoryAdjustmentsPage() {
+export default async function InventoryAdjustmentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ variantId?: string; warehouseId?: string }>;
+}) {
   const user = await requirePermission("stock.adjust");
   const canTransfer = user.permissions.has("stock.transfer");
+  const { variantId, warehouseId } = await searchParams;
 
   const [variants, warehouses] = await Promise.all([
     prisma.productVariant.findMany({
@@ -52,14 +57,24 @@ export default async function InventoryAdjustmentsPage() {
                 <TabsTrigger value="transfer">Transferencia</TabsTrigger>
               </TabsList>
               <TabsContent value="adjustment" className="pt-4">
-                <AdjustmentForm variants={variantOptions} warehouses={warehouseOptions} />
+                <AdjustmentForm
+                  variants={variantOptions}
+                  warehouses={warehouseOptions}
+                  defaultVariantId={variantId}
+                  defaultWarehouseId={warehouseId}
+                />
               </TabsContent>
               <TabsContent value="transfer" className="pt-4">
                 <TransferForm variants={variantOptions} warehouses={warehouseOptions} />
               </TabsContent>
             </Tabs>
           ) : (
-            <AdjustmentForm variants={variantOptions} warehouses={warehouseOptions} />
+            <AdjustmentForm
+              variants={variantOptions}
+              warehouses={warehouseOptions}
+              defaultVariantId={variantId}
+              defaultWarehouseId={warehouseId}
+            />
           )}
         </CardContent>
       </Card>

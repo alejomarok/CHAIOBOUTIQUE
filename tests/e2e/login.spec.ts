@@ -28,6 +28,36 @@ test("unauthenticated access to /admin never renders admin content", async ({ pa
   await expect(page.getByRole("heading", { name: "Panel" })).not.toBeVisible();
 });
 
+test("storefront header proves session state: shows 'Cerrar sesión' while logged in, logging out redirects to / and restores 'Iniciar sesión', and the old session can no longer reach /admin", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(ADMIN_FIXTURE.email);
+  await page.getByLabel("Contraseña").fill(ADMIN_FIXTURE.password);
+  await page.getByRole("button", { name: "Iniciar sesión" }).click();
+  await expect(page).toHaveURL(/\/admin/);
+
+  // A page other than "/" so the post-logout redirect is an observable
+  // navigation, not a client-side no-op on an already-current URL.
+  await page.goto("/catalog");
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Iniciar sesión" })).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+
+  // Redirects to / and the header immediately reflects the now-anonymous
+  // session — no manual reload.
+  await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+  await expect(page.getByRole("link", { name: "Iniciar sesión" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).not.toBeVisible();
+
+  // The session is actually gone server-side, not just hidden client-side —
+  // same real-403/401 signal as the "unauthenticated access" test above.
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Necesitás iniciar sesión" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Panel" })).not.toBeVisible();
+});
+
 test("a restricted-role user gets a real 403, not just a hidden menu item", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("Email").fill(RESTRICTED_FIXTURE.email);

@@ -6,7 +6,7 @@ import type { StorageProvider } from "./provider";
 import { E2EStorageProvider } from "./e2e-provider";
 import { SupabaseStorageProvider } from "./supabase-provider";
 
-export type { StorageProvider, UploadInput, StoredObject } from "./provider";
+export type { StorageProvider, UploadInput, StoredObject, SignedUploadTarget } from "./provider";
 export {
   StorageValidationError,
   buildObjectPath,

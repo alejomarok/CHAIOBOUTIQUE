@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db-core";
+import { timed } from "@/lib/timing";
 import { recordAuditLog } from "@/modules/audit/index-core";
 import type {
   InventoryMovement,
@@ -324,22 +325,46 @@ export async function getInventoryBalance(variantId: string, warehouseId: string
 // is the only place stock correctness is actually enforced.
 export async function getTotalStockForVariants(variantIds: string[]): Promise<number> {
   if (variantIds.length === 0) return 0;
-  const result = await prisma.inventoryBalance.aggregate({
+  return timed("inventory.getTotalStockForVariants", async () => {
+    const result = await prisma.inventoryBalance.aggregate({
+      where: { variantId: { in: variantIds } },
+      _sum: { quantity: true },
+    });
+    return result._sum.quantity ?? 0;
+  });
+}
+
+// The batch/list-page equivalent of getTotalStockForVariants: one query for
+// every variant across every product on /admin/products, returned as a
+// variantId -> total-stock map so the caller groups by product itself —
+// never one query per row (that would be exactly the N+1 pattern this
+// codebase's product/catalog read paths deliberately avoid elsewhere).
+export async function getStockByVariantIds(variantIds: string[]): Promise<Map<string, number>> {
+  if (variantIds.length === 0) return new Map();
+  const rows = await prisma.inventoryBalance.groupBy({
+    by: ["variantId"],
     where: { variantId: { in: variantIds } },
     _sum: { quantity: true },
   });
-  return result._sum.quantity ?? 0;
+  return new Map(rows.map((row) => [row.variantId, row._sum.quantity ?? 0]));
 }
 
-export async function listInventoryBalances(filters: { warehouseId?: string } = {}) {
-  return prisma.inventoryBalance.findMany({
-    where: { warehouseId: filters.warehouseId },
-    include: {
-      variant: { include: { product: true, sizeOption: true, color: true } },
-      warehouse: true,
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+export async function listInventoryBalances(
+  filters: { warehouseId?: string; variantIds?: string[] } = {},
+) {
+  return timed("inventory.listInventoryBalances", () =>
+    prisma.inventoryBalance.findMany({
+      where: {
+        warehouseId: filters.warehouseId,
+        variantId: filters.variantIds ? { in: filters.variantIds } : undefined,
+      },
+      include: {
+        variant: { include: { product: true, sizeOption: true, color: true } },
+        warehouse: true,
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+  );
 }
 
 export async function listInventoryMovements(filters: {
