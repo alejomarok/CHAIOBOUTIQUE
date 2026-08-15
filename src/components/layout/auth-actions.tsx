@@ -17,7 +17,7 @@ export async function AuthActions() {
 
   if (!user) {
     return (
-      <Button asChild variant="outline" size="sm">
+      <Button asChild variant="outline">
         <Link href="/login">Iniciar sesión</Link>
       </Button>
     );

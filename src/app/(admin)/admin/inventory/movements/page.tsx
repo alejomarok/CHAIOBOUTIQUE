@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -12,10 +14,21 @@ import { prisma } from "@/lib/db";
 
 export const metadata = { title: "Movimientos de stock" };
 
-export default async function InventoryMovementsPage() {
+interface InventoryMovementsPageProps {
+  // Optional deep link from an originating record (e.g. a Sale's "Ver
+  // movimientos de stock") — reuses InventoryMovement's existing
+  // relatedEntityType/relatedEntityId columns (already indexed together),
+  // never a separate filter mechanism. Absent = unfiltered, same as before.
+  searchParams: Promise<{ relatedEntityType?: string; relatedEntityId?: string }>;
+}
+
+export default async function InventoryMovementsPage({ searchParams }: InventoryMovementsPageProps) {
   await requirePermission("stock.view_movements");
+  const { relatedEntityType, relatedEntityId } = await searchParams;
+  const isFiltered = Boolean(relatedEntityType && relatedEntityId);
 
   const movements = await prisma.inventoryMovement.findMany({
+    where: isFiltered ? { relatedEntityType, relatedEntityId } : undefined,
     include: {
       variant: { include: { product: true, sizeOption: true, color: true } },
       warehouse: true,
@@ -33,6 +46,14 @@ export default async function InventoryMovementsPage() {
           Historial inmutable — las correcciones se hacen con movimientos compensatorios, nunca
           editando uno existente.
         </p>
+        {isFiltered && (
+          <p className="mt-2 text-sm">
+            Mostrando solo los movimientos de este origen.{" "}
+            <Link href="/admin/inventory/movements" className="underline">
+              Ver todos los movimientos
+            </Link>
+          </p>
+        )}
       </div>
       <div className="border-border overflow-hidden rounded-xl border">
         <Table>

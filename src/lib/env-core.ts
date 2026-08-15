@@ -60,6 +60,18 @@ const envSchema = z.object({
   STORE_LOCALE: z.string().min(1),
   STORE_TIMEZONE: z.string().min(1),
 
+  // Store social/contact presence — every one optional and unset by
+  // default. The public footer (src/components/layout/public-footer.tsx)
+  // reads these as the single source of truth and hides each element
+  // gracefully when its value is absent, rather than ever hardcoding a
+  // URL/number/address or showing a dead placeholder link.
+  STORE_INSTAGRAM_URL: optional(z.url()),
+  STORE_FACEBOOK_URL: optional(z.url()),
+  STORE_TIKTOK_URL: optional(z.url()),
+  STORE_WHATSAPP_NUMBER: optional(z.string().min(1)),
+  STORE_CONTACT_EMAIL: optional(z.email()),
+  STORE_CITY: optional(z.string().min(1)),
+
   // Initial admin — optional; the seed skips admin creation when absent.
   INITIAL_ADMIN_NAME: optional(z.string().min(1)),
   INITIAL_ADMIN_EMAIL: optional(z.email()),

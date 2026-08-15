@@ -20,7 +20,9 @@ export type AdminIconName =
   | "users"
   | "key-round"
   | "settings"
-  | "user-round";
+  | "user-round"
+  | "contact"
+  | "shopping-cart";
 
 export interface AdminNavItem {
   href: string;
@@ -56,6 +58,18 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     permission: "attributes.view",
   },
   { href: "/admin/colors", label: "Colores", iconName: "palette", permission: "attributes.view" },
+  {
+    href: "/admin/customers",
+    label: "Clientes",
+    iconName: "contact",
+    permission: "customers.view",
+  },
+  {
+    href: "/admin/sales",
+    label: "Ventas",
+    iconName: "shopping-cart",
+    permission: "sales.view",
+  },
   {
     href: "/admin/warehouses",
     label: "Depósitos",

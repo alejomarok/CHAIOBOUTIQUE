@@ -70,6 +70,22 @@ model User {
   // guest, so it never accidentally acquires a customer checkout identity.
   carts Cart[]
 
+  // Phase 3D — commercial Customer back-relations. linkedCustomer is the
+  // OPTIONAL, admin-controlled link from this authentication identity to a
+  // commercial Customer row (see Customer.linkedUserId) — most Users never
+  // have one, and most Customers never have a linkedUser either; the two
+  // concepts are deliberately independent. createdCustomers is just
+  // "who manually created this Customer record" audit metadata, distinct
+  // from linkedCustomer.
+  linkedCustomer   Customer?  @relation("CustomerLinkedUser")
+  createdCustomers Customer[] @relation("CustomerCreatedBy")
+
+  // Phase — Sales/POS foundation back-relations. createdSales: every staff
+  // account that has ever built a Sale (draft or confirmed). cancelledSales:
+  // who cancelled it, if anyone — a separate actor from whoever created it.
+  createdSales   Sale[] @relation("SaleCreatedBy")
+  cancelledSales Sale[] @relation("SaleCancelledBy")
+
   @@map("user")
 }
 
@@ -462,6 +478,11 @@ model ProductVariant {
   inventoryBalances  InventoryBalance[]
   images             ProductImage[]
   cartItems          CartItem[]
+  // Phase — Sales/POS foundation. See Sale/SaleItem below: a sale line item
+  // references the variant for stock-integration readiness later, but never
+  // trusts it for historical display — see SaleItem.productNameSnapshot/
+  // skuSnapshot.
+  saleItems          SaleItem[]
 
   // Covers the fully-specified case (both sizeOptionId and colorId set).
   // The default/size-only/color-only cases (where a plain @@unique can't
@@ -539,6 +560,9 @@ model Warehouse {
 
   balances  InventoryBalance[]
   movements InventoryMovement[]
+  // Phase — Sales/POS foundation. Every Sale references exactly one
+  // Warehouse (see Sale.warehouseId's own comment).
+  sales     Sale[]
 
   @@map("warehouse")
 }
@@ -563,6 +587,16 @@ enum InventoryOperationType {
   TRANSFER
   IMPORT
   INTERNAL_CORRECTION
+  // Phase — Sales/POS foundation. Covers BOTH a sale's stock deduction (at
+  // confirmation) and its reversal (at cancellation of a confirmed sale) —
+  // the two are still fully distinguishable via MovementType.SALE vs
+  // SALE_CANCELLATION below, the same way one TRANSFER operationType
+  // produces two distinct movement types for its two directions. Kept as
+  // one operationType, not two, deliberately: both are equally
+  // "sale-related inventory operations", and splitting them would be the
+  // kind of overlapping-concept proliferation this phase was explicitly
+  // told to avoid.
+  SALE
 }
 
 enum MovementType {
@@ -574,6 +608,16 @@ enum MovementType {
   INTERNAL_CORRECTION
   TRANSFER_OUT
   TRANSFER_IN
+  // Phase — Sales/POS foundation. SALE: a confirmed Sale's stock deduction
+  // (negative quantityDelta). SALE_CANCELLATION: the reversal when a
+  // CONFIRMED sale is cancelled (positive quantityDelta, same variant/
+  // warehouse as the original SALE movement it reverses) — never applied
+  // for a DRAFT sale's cancellation, which never deducted anything to
+  // begin with. Both are linked back to their Sale via
+  // InventoryMovement.relatedEntityType = "Sale" / relatedEntityId =
+  // sale.id — see modules/sales/sale-core.ts.
+  SALE
+  SALE_CANCELLATION
 }
 
 // The business-operation aggregate — one row per adjustment/transfer/import
@@ -890,4 +934,347 @@ model CartItem {
 
   @@unique([cartId, productVariantId])
   @@map("cart_item")
+}
+
+// =============================================================================
+// Phase 3D — Commercial customer management. See DATABASE.md.
+//
+// Customer is the COMMERCIAL identity (who a future Sale/Order/Invoice
+// belongs to) — deliberately independent from both:
+//   - User: the AUTHENTICATION identity (Better Auth). A Customer can exist
+//     with zero User — a walk-in POS sale, a manually-registered person, a
+//     company with fiscal data and no online account at all.
+//   - CustomerProfile: the public self-registration consent/legal record
+//     (terms/privacy acceptance, marketing consent). That model keeps its
+//     existing, narrower purpose unchanged; it is not renamed or merged
+//     into Customer. A self-registered web account gets BOTH a
+//     CustomerProfile (via modules/customers/service.ts's registerCustomer)
+//     AND a Customer row (auto-created, auto-linked, in the same
+//     transaction — see modules/customers/customer-core.ts's
+//     createCustomerForNewRegistration) — two different concerns about the
+//     same person, not a merge of the two models.
+//
+// linkedUserId is an OPTIONAL, ADMIN-controlled link to a User — never
+// required, never self-service (see modules/customers/customer-core.ts's
+// linkCustomerToUser: requires customers.manage, and refuses to link a User
+// that's already linked to a different Customer).
+//
+// Future Sales/Invoices will reference Customer.id directly, including the
+// system "Consumidor Final" row (isSystemDefault: true — see
+// modules/customers/seed-core.ts) for fast POS sales with no identified
+// customer. A completed Sale/Invoice will eventually need to SNAPSHOT the
+// customer's name/document/tax data as of the moment of sale, so a later
+// edit to this row never rewrites a historical document — that snapshot
+// mechanism is intentionally NOT built in this phase; documented here for
+// the future Sales phase to implement.
+// =============================================================================
+
+enum CustomerType {
+  PERSON
+  COMPANY
+}
+
+model Customer {
+  id   String       @id @default(cuid())
+  // Human-friendly reference number, admin/POS-facing — distinct from
+  // CustomerProfile.customerCode (a different model, different generator;
+  // see modules/customers/customer-code.ts vs this one's
+  // buildCandidateCustomerRecordCode) so the two are never visually
+  // confused. Always server-generated, never accepted from a client.
+  code String       @unique
+  type CustomerType
+
+  // --- PERSON fields (nullable: irrelevant for type = COMPANY) ---
+  firstName String?
+  lastName  String?
+
+  // --- COMPANY fields (nullable: irrelevant for type = PERSON) ---
+  businessName String?
+
+  // --- Identity / fiscal ---
+  // documentType/documentNumber: personal ID (e.g. "DNI", "PASSPORT") —
+  // free text, not an enum, since valid document types vary by country and
+  // this schema must not assume Argentina is the only market (see this
+  // phase's own instructions). taxId: fiscal identifier (Argentina: CUIT),
+  // its own identifier space, independent of documentType/documentNumber.
+  documentType             String?
+  documentNumber           String?
+  // Digits-only projection of documentNumber, computed at write time (see
+  // modules/customers/normalize.ts) — exists purely so the strong-identifier
+  // uniqueness check/index below and duplicate-detection lookups are exact
+  // and indexed, without forcing a single display format on documentNumber
+  // itself (staff may enter "30.123.456" or "30123456"; both normalize the
+  // same way).
+  documentNumberNormalized String?
+  taxId                    String?
+  taxIdNormalized          String?
+  // Free text on purpose, not an enum: ARCA's fiscal-condition categories
+  // are an external, still-evolving business rule this phase deliberately
+  // does not hard-code — see this phase's own instructions ("do not
+  // hard-code unstable fiscal rules that should later be configurable").
+  // ARCA integration itself is out of scope this phase.
+  taxCondition             String?
+
+  // --- Contact --- both stored already-normalized at write time (see
+  // modules/customers/normalize.ts: email lowercased/trimmed, phone
+  // stripped to digits + an optional leading "+") — the normalized form
+  // doubles as the display form for both, so no separate *Normalized
+  // column is needed the way documentNumber/taxId have one (a phone number
+  // stays perfectly usable normalized; a formatted document number a staff
+  // member typed deliberately does not). Never unique: a household/company
+  // may reasonably share either, and unlike documentNumber/taxId neither is
+  // a legal identifier — only a soft duplicate-detection signal (see
+  // customer-core.ts's findPossibleDuplicateCustomers).
+  email String?
+  phone String?
+
+  // Free-text staff notes — internal only, never sent to any public/
+  // customer-facing surface (see this phase's privacy requirements).
+  notes String?
+
+  isActive        Boolean @default(true)
+  // "Consumidor Final" — see modules/customers/seed-core.ts. Blocks
+  // hard-delete and blocks editing identity-defining fields at the service
+  // layer (modules/customers/customer-core.ts) so it can never accidentally
+  // become "just another editable person". Application-level enforcement
+  // only — same documented-soft-enforcement posture as Role.isSystem.
+  isSystemDefault Boolean @default(false)
+
+  // Optional link to an authenticated User — see the model-level comment
+  // above. @unique: at most one Customer may claim a given User (Postgres
+  // treats every NULL as distinct, so any number of Customers may have
+  // linkedUserId: null).
+  linkedUserId String? @unique
+  linkedUser   User?   @relation("CustomerLinkedUser", fields: [linkedUserId], references: [id], onDelete: SetNull)
+
+  // Who manually created this row (null for system-seeded rows, e.g.
+  // "Consumidor Final", and for the auto-created row behind a new web
+  // registration — see the model comment above) — audit metadata, distinct
+  // from linkedUserId.
+  createdById String?
+  createdBy   User?   @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  addresses CustomerAddress[]
+
+  // Phase — Sales/POS foundation. Every Sale (including ones for
+  // "Consumidor Final", the system row itself) references a Customer here
+  // — see the Sale model's own comment for why this relation is Restrict
+  // (a Customer with sales history can never be hard-deleted; deactivation
+  // only, matching this model's own documented lifecycle policy above).
+  sales Sale[]
+
+  // Strong-identifier duplicate prevention (see this phase's duplicate
+  // detection policy in DATABASE.md): an exact match on (documentType,
+  // documentNumberNormalized) or on taxIdNormalized is blocked outright,
+  // never just warned about — weaker signals (email, phone, similar name)
+  // only ever produce a warning (findPossibleDuplicateCustomers), never a
+  // hard block. Any-NULL rows never conflict under Postgres multi-column
+  // unique semantics, so customers with no document/taxId (including every
+  // customer created before providing one, and "Consumidor Final" itself)
+  // never collide with each other.
+  @@unique([documentType, documentNumberNormalized])
+  @@unique([taxIdNormalized])
+  @@index([email])
+  @@index([phone])
+  @@map("customer")
+}
+
+// Multiple delivery/billing addresses per customer. Deliberately
+// country-agnostic beyond a `country` default: Argentina is the only market
+// today, but street/floor/apartment/postalCode/city/province/country cover
+// most address shapes without hard-coding an Argentina-only layout.
+model CustomerAddress {
+  id         String  @id @default(cuid())
+  customerId String
+  // e.g. "Casa", "Trabajo", "Local" — free text, admin-chosen.
+  label      String?
+  street     String
+  number     String?
+  floor      String?
+  apartment  String?
+  postalCode String?
+  city       String
+  province   String?
+  // ISO 3166-1 alpha-2. Defaults to Argentina (the only market this phase
+  // actually serves) without hard-coding it as the only legal value.
+  country    String  @default("AR")
+  // "additionalReference" from this phase's spec — free-text delivery notes
+  // ("timbre 3B", "entre Rivadavia y San Martín"), never a structured field.
+  notes      String?
+
+  // Exactly one default shipping / one default billing address per
+  // customer — hand-written partial unique indexes (same null-axis
+  // technique as Warehouse.isDefault/ProductImage.isPrimary; see
+  // DATABASE.md), enforced alongside transactional
+  // setDefaultShippingAddress/setDefaultBillingAddress service functions
+  // that unset the old default before setting the new one.
+  isDefaultShipping Boolean @default(false)
+  isDefaultBilling  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_address")
+}
+
+// =============================================================================
+// Phase — Sales/POS foundation, now integrated with real inventory (see the
+// Sales -> Inventory integration checkpoint). Internal/manual sales only (an
+// admin/sales user building a sale from the admin panel) — explicitly still
+// NOT this phase: ARCA invoicing, Mercado Pago payment registration, online
+// checkout/orders conversion, shipping, returns/refunds beyond a full-sale
+// cancellation.
+//
+// Monetary fields follow the same convention as everywhere else in this
+// schema (see docs/adr/0001-monetary-strategy.md): BigInt minor units,
+// never Decimal/Float/Int — deliberately NOT Prisma's Decimal type despite
+// that being a superficially plausible choice for "money", because this
+// codebase made and documented that exact call already for Product/
+// ProductVariant/CartItem, and a second monetary representation in the same
+// schema would be a real inconsistency, not a neutral choice.
+//
+// Inventory linkage: a confirmed Sale's stock deduction, and a cancelled
+// Sale's reversal, both go through the existing modules/inventory/
+// service-core.ts's applyInventoryOperation — never a direct
+// InventoryBalance write. Movements are tied back to the Sale via the
+// InventoryMovement model's EXISTING relatedEntityType/relatedEntityId
+// columns (relatedEntityType: "Sale", relatedEntityId: sale.id) — the same
+// polymorphic-reference pattern already used for ImportBatch — rather than
+// a new dedicated saleId column on InventoryMovement, since that's the
+// choice actually consistent with the existing architecture. See
+// MovementType.SALE/SALE_CANCELLATION and InventoryOperationType.SALE
+// below.
+// =============================================================================
+
+enum SaleStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+// A manual/POS sale. Always has a Customer (defaults to the seeded
+// "Consumidor Final" — see modules/customers/seed-core.ts — when the admin
+// doesn't pick one; never nullable, per this phase's explicit requirement
+// "a sale must always have a customer"). Never requires the customer to
+// have a linked User — Customer already supports that independently (see
+// that model's own comment), and this phase changes nothing about it.
+//
+// customerNameSnapshot/customerDocumentSnapshot: written once at sale
+// creation, exactly the snapshot the Customer model's own doc comment
+// already calls for ("a later edit to Customer must never rewrite a
+// historical document") — this is that mechanism's first real consumer.
+// Never re-derived from a live join to Customer for display purposes.
+model Sale {
+  id          String     @id @default(cuid())
+  // Human-friendly reference number, admin/POS-facing — same three-part
+  // pattern as Customer.code (pure candidate generator + DB-retry loop +
+  // unique constraint; see modules/sales/record-code.ts).
+  code        String     @unique
+  customerId  String
+  // Which physical location this sale's stock is/was consumed from —
+  // required (never nullable): every confirmed sale must be able to
+  // deduct/restore real inventory, and even a DRAFT sale needs a
+  // warehouse chosen up front so the "available stock" the admin sees
+  // while building it is meaningful. Defaults to Warehouse.isDefault at
+  // creation time (see modules/sales/sale-core.ts) — never silently
+  // guessed. Restrict: a warehouse referenced by sales history can never
+  // simply vanish out from under it, same posture as every other Restrict
+  // relation in this schema. Immutable once status leaves DRAFT — enforced
+  // in application code (updateSale refuses to touch it outside DRAFT),
+  // same documented-soft-enforcement posture as Role.isSystem elsewhere.
+  warehouseId String
+  createdById String
+  status      SaleStatus @default(DRAFT)
+  saleDate    DateTime   @default(now())
+
+  customerNameSnapshot     String
+  customerDocumentSnapshot String?
+
+  // All BigInt minor units. Recomputed server-side from SaleItem rows on
+  // every create/update — see modules/sales/totals.ts — never trusted from
+  // the client, never hand-edited independently of the item set.
+  subtotalAmount      BigInt @default(0)
+  discountTotalAmount BigInt @default(0)
+  // Always 0 this phase — no tax/fiscal model exists yet (ARCA integration
+  // is explicitly out of scope). Kept as a real column, not bolted on
+  // later, so a future fiscal phase doesn't need a breaking schema change
+  // to start populating it.
+  taxTotalAmount      BigInt @default(0)
+  totalAmount         BigInt @default(0)
+
+  notes String?
+
+  confirmedAt   DateTime?
+  cancelledAt   DateTime?
+  cancelledById String?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Restrict, not Cascade/SetNull: a Customer or User that has ever been
+  // referenced by a Sale can never simply vanish out from under it — same
+  // "commercial history outlives casual edits" posture as every other
+  // Restrict relation into User/Customer in this schema.
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  createdBy   User      @relation("SaleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  cancelledBy User?     @relation("SaleCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  items SaleItem[]
+
+  @@index([customerId])
+  @@index([warehouseId])
+  @@index([status])
+  @@index([saleDate])
+  @@map("sale")
+}
+
+// One product line within a Sale. References ProductVariant (never Product
+// directly — pricing/SKU live on the variant, exactly the same modeling
+// choice CartItem already made; see ProductVariant.sku/priceAmount and
+// modules/products/pricing.ts's getEffectivePrice). productNameSnapshot/
+// skuSnapshot/unitPriceAmount are all written once at the moment this line
+// is added and never re-read from the live Product/ProductVariant
+// afterward — the whole point being that a later product rename, re-price,
+// or even deletion-block-via-Restrict must never alter a historical sale.
+//
+// Confirming a Sale deducts stock for every SaleItem via
+// modules/inventory/service-core.ts's applyInventoryOperation
+// (MovementType.SALE, one movement per item, in the Sale's own
+// warehouseId) — see modules/sales/sale-core.ts's confirmSale. Cancelling a
+// CONFIRMED sale reverses those exact quantities (MovementType.
+// SALE_CANCELLATION) in the same warehouse; cancelling a DRAFT sale never
+// touches inventory at all, since a draft never reserved any.
+model SaleItem {
+  id               String @id @default(cuid())
+  saleId           String
+  productVariantId String
+
+  productNameSnapshot String
+  skuSnapshot         String
+
+  quantity        Int
+  unitPriceAmount BigInt
+  discountAmount  BigInt @default(0)
+  // quantity * unitPriceAmount
+  subtotalAmount  BigInt
+  // subtotalAmount - discountAmount — never negative; enforced in
+  // modules/sales/totals.ts before either persisted value is written.
+  totalAmount     BigInt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sale           Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@map("sale_item")
 }

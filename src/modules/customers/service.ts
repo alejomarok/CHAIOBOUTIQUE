@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { recordAuditLog } from "@/modules/audit";
 import type { CustomerProfile, Prisma } from "@/generated/prisma/client";
 
+import { createCustomerForRegisteredUser } from "./customer-core";
 import { buildCandidateCustomerCode } from "./customer-code";
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "./legal";
 
@@ -81,6 +82,15 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Cu
   const customerRole = await prisma.role.findUniqueOrThrow({ where: { key: "CUSTOMER" } });
 
   return prisma.$transaction(async (tx) => {
+    // Ensures the commercial Customer row exists and is linked, regardless
+    // of which branch below runs — createCustomerForRegisteredUser is
+    // itself idempotent per userId, so this is safe to call unconditionally
+    // even on the "already registered, just repairing the role" path (e.g.
+    // an account that predates this phase and was never backfilled). See
+    // schema.prisma's Customer model comment: this is a 1:1 creation for
+    // one User, never a match/merge against existing Customer rows.
+    await createCustomerForRegisteredUser(tx, input.userId);
+
     const existing = await tx.customerProfile.findUnique({ where: { userId: input.userId } });
     if (existing) {
       await ensureCustomerRoleAssignment(tx, input.userId, customerRole.id);

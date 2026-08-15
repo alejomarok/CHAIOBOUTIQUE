@@ -2,6 +2,7 @@
 
 import {
   Boxes,
+  Contact,
   KeyRound,
   LayoutDashboard,
   Package,
@@ -9,6 +10,7 @@ import {
   Ruler,
   Settings,
   ShieldCheck,
+  ShoppingCart,
   Tags,
   Upload,
   UserRound,
@@ -39,6 +41,8 @@ const ICON_MAP: Record<AdminIconName, ComponentType<{ className?: string }>> = {
   "key-round": KeyRound,
   settings: Settings,
   "user-round": UserRound,
+  contact: Contact,
+  "shopping-cart": ShoppingCart,
 };
 
 export function AdminNavLinks({

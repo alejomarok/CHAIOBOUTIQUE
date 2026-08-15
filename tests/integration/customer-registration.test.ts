@@ -12,6 +12,7 @@ import {
   reconcileAbandonedRegistrations,
   registerCustomer,
 } from "@/modules/customers/service";
+import { backfillCustomersForRegisteredUsers } from "@/modules/customers/seed-core";
 
 describe("customer registration — profile, role, consent, reconciliation (real DB)", () => {
   const createdUserIds: string[] = [];
@@ -153,6 +154,65 @@ describe("customer registration — profile, role, consent, reconciliation (real
       where: { customerProfileId: first.id },
     });
     expect(consents).toHaveLength(3); // not 6 — never re-recorded on the second call
+  });
+
+  it("registerCustomer also auto-creates and links a commercial Customer row, in the same transaction", async () => {
+    const user = await createRawUser("commercial-link");
+
+    await registerCustomer({
+      userId: user.id,
+      marketingConsent: false,
+      termsVersion: "v1",
+      privacyVersion: "v1",
+    });
+
+    const linkedCustomer = await prisma.customer.findUnique({ where: { linkedUserId: user.id } });
+    expect(linkedCustomer).not.toBeNull();
+    expect(linkedCustomer?.type).toBe("PERSON");
+    expect(linkedCustomer?.createdById).toBeNull(); // system-initiated, not a self-performed action
+  });
+
+  it("re-registering the same user never creates a second linked Customer", async () => {
+    const user = await createRawUser("commercial-link-idempotent");
+
+    await registerCustomer({
+      userId: user.id,
+      marketingConsent: false,
+      termsVersion: "v1",
+      privacyVersion: "v1",
+    });
+    await registerCustomer({
+      userId: user.id,
+      marketingConsent: false,
+      termsVersion: "v1",
+      privacyVersion: "v1",
+    });
+
+    const linkedCustomers = await prisma.customer.count({ where: { linkedUserId: user.id } });
+    expect(linkedCustomers).toBe(1);
+  });
+
+  it("backfillCustomersForRegisteredUsers links a Customer to an already-registered account that predates it", async () => {
+    const user = await createRawUser("predates-backfill");
+    await registerCustomer({
+      userId: user.id,
+      marketingConsent: false,
+      termsVersion: "v1",
+      privacyVersion: "v1",
+    });
+    // Simulate "this account predates commercial Customer" by removing the
+    // link registerCustomer itself just created — the exact gap the
+    // backfill exists to repair for real pre-existing dev/prod data.
+    await prisma.customer.deleteMany({ where: { linkedUserId: user.id } });
+
+    const before = await prisma.customer.findUnique({ where: { linkedUserId: user.id } });
+    expect(before).toBeNull();
+
+    const { linkedCount } = await backfillCustomersForRegisteredUsers();
+    expect(linkedCount).toBeGreaterThan(0);
+
+    const after = await prisma.customer.findUnique({ where: { linkedUserId: user.id } });
+    expect(after).not.toBeNull();
   });
 
   it("the database rejects a direct UPDATE on customer_consent (append-only trigger)", async () => {

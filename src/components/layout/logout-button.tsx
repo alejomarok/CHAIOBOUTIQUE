@@ -47,7 +47,7 @@ export function LogoutButton() {
   }
 
   return (
-    <Button variant="outline" size="sm" disabled={isSigningOut} onClick={handleSignOut}>
+    <Button variant="outline" disabled={isSigningOut} onClick={handleSignOut}>
       {isSigningOut ? "Cerrando sesión…" : "Cerrar sesión"}
     </Button>
   );

@@ -86,10 +86,19 @@ export const auth = betterAuth({
   // lib/rate-limiters.ts) rather than IP alone. `storage` stays at its
   // "memory" default: not shared across instances, documented as a
   // pre-production gap in the same place as lib/rate-limit.ts's.
+  //
+  // Raised (never disabled — this endpoint's rate limiting itself stays
+  // exercised) only under E2E_TEST_MODE: the whole Playwright suite shares
+  // one webServer process and therefore one in-memory counter, and as more
+  // specs log in, real automated logins from many spec files can
+  // legitimately exceed 10/60s with zero attacker involved — a false
+  // positive this app's own tests would trip, not a security signal. Never
+  // "true" outside a Playwright run — see env-core.ts's E2E_TEST_MODE,
+  // which is only ever set by playwright.config.ts's webServer.env.
   rateLimit: {
     enabled: true,
     customRules: {
-      "/sign-in/email": { window: 60, max: 10 },
+      "/sign-in/email": { window: 60, max: env.E2E_TEST_MODE ? 200 : 10 },
     },
   },
   user: {

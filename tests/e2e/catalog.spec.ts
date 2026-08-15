@@ -14,7 +14,7 @@ import { createWarehouse, setDefaultWarehouse } from "@/modules/warehouses/servi
 // modules/products/public-queries.ts actually holds over HTTP, not just in
 // an integration test that calls the query function directly — a DRAFT
 // product must never render, and an ACTIVE one with stock must show as
-// "En stock" without exposing cost or exact quantities in the page.
+// "Stock disponible" without exposing cost or exact quantities in the page.
 
 test.describe("public catalog and product detail (real DB, real HTTP)", () => {
   const createdUserIds: string[] = [];
@@ -93,7 +93,7 @@ test.describe("public catalog and product detail (real DB, real HTTP)", () => {
     await page.getByText(uniqueName).click();
     await expect(page).toHaveURL(new RegExp(`/product/${product.slug}$`));
     await expect(page.getByRole("heading", { name: uniqueName })).toBeVisible();
-    await expect(page.getByText("En stock")).toBeVisible();
+    await expect(page.getByText("Stock disponible")).toBeVisible();
   });
 
   test("a DRAFT product never renders on the public site", async ({ page }) => {

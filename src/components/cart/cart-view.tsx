@@ -97,15 +97,17 @@ export function CartView({ initialCart }: { initialCart: CartDTO }) {
   if (cart.items.length === 0) {
     return (
       <div className="flex flex-col items-center gap-4 py-24 text-center">
-        <ShoppingBag className="text-muted-foreground size-12" />
+        <div className="bg-blush flex size-16 items-center justify-center rounded-full">
+          <ShoppingBag className="text-accent-cyan size-7" />
+        </div>
         <div>
-          <p className="font-heading text-xl font-semibold">Tu carrito está vacío</p>
+          <p className="font-heading text-xl font-semibold">Tu carrito está vacío.</p>
           <p className="text-muted-foreground mt-1 text-sm">
             Todavía no agregaste ningún producto.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/catalog">Ver catálogo</Link>
+        <Button asChild size="lg">
+          <Link href="/catalog">Explorar productos</Link>
         </Button>
       </div>
     );
@@ -119,9 +121,9 @@ export function CartView({ initialCart }: { initialCart: CartDTO }) {
           return (
             <li
               key={item.id}
-              className="border-border flex gap-4 rounded-xl border p-4 sm:items-center"
+              className="ring-border/60 flex gap-4 rounded-2xl p-4 ring-1 sm:items-center"
             >
-              <div className="bg-muted relative size-20 shrink-0 overflow-hidden rounded-lg sm:size-24">
+              <div className="bg-muted relative size-20 shrink-0 overflow-hidden rounded-xl sm:size-24">
                 <ProductImage
                   src={item.imageUrl}
                   alt={item.productName}
@@ -198,10 +200,10 @@ export function CartView({ initialCart }: { initialCart: CartDTO }) {
         })}
       </ul>
 
-      <aside className="border-border flex h-fit flex-col gap-4 rounded-xl border p-5">
+      <aside className="bg-blush/50 flex h-fit flex-col gap-4 rounded-2xl p-5">
         <div className="flex items-center justify-between">
           <p className="font-medium">Subtotal</p>
-          <p className="font-heading text-lg font-semibold">{cart.subtotalDisplay}</p>
+          <p className="font-heading text-xl font-semibold">{cart.subtotalDisplay}</p>
         </div>
         {cart.hasIssues && (
           <p className="text-muted-foreground text-xs">

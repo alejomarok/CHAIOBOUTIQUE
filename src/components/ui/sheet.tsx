@@ -5,6 +5,7 @@ import { Dialog as SheetPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useStorefrontPortalContainer } from "@/components/layout/storefront-root";
 import { XIcon } from "lucide-react";
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -19,8 +20,24 @@ function SheetClose({ ...props }: React.ComponentProps<typeof SheetPrimitive.Clo
   return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
 }
 
-function SheetPortal({ ...props }: React.ComponentProps<typeof SheetPrimitive.Portal>) {
-  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
+// Portals into the storefront's own DOM subtree when rendered there (see
+// components/layout/storefront-root.tsx) — otherwise (admin, or no
+// explicit container prop) falls back to Radix's default document.body,
+// unchanged from before. Without this, a Sheet opened from a public page
+// would render outside `.storefront`'s scoped theme tokens and pick up
+// the admin palette instead.
+function SheetPortal({
+  container,
+  ...props
+}: React.ComponentProps<typeof SheetPrimitive.Portal>) {
+  const storefrontContainer = useStorefrontPortalContainer();
+  return (
+    <SheetPrimitive.Portal
+      data-slot="sheet-portal"
+      container={container ?? storefrontContainer ?? undefined}
+      {...props}
+    />
+  );
 }
 
 function SheetOverlay({

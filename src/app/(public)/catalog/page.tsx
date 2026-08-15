@@ -1,5 +1,9 @@
+import Link from "next/link";
+
 import { CatalogFilters } from "@/components/catalog/catalog-filters";
+import { CatalogFiltersSheet } from "@/components/catalog/catalog-filters-sheet";
 import { ProductCard } from "@/components/catalog/product-card";
+import { Button } from "@/components/ui/button";
 import { listCategories } from "@/modules/categories/service";
 import { listPublicProducts } from "@/modules/products/public-queries";
 
@@ -19,6 +23,7 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const params = await searchParams;
   const page = Math.max(1, Number(params.page) || 1);
   const sort = isValidSort(params.sort) ? params.sort : "newest";
+  const defaultValues = { q: params.q, category: params.category, sort };
 
   const [products, categories] = await Promise.all([
     listPublicProducts({
@@ -31,21 +36,41 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
     listCategories(),
   ]);
 
+  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
+  const activeCategoryName = categories.find((c) => c.id === params.category)?.name;
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-      <h1 className="font-heading mb-8 text-3xl font-semibold">Catálogo</h1>
-      <div className="grid gap-8 md:grid-cols-[220px_1fr]">
-        <aside>
-          <CatalogFilters
-            categories={categories}
-            defaultValues={{ q: params.q, category: params.category, sort }}
-          />
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
+      <div className="mb-8 flex flex-col gap-2">
+        <h1 className="font-heading text-3xl font-semibold sm:text-4xl">
+          {activeCategoryName ?? "Catálogo"}
+        </h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground text-sm">
+            {products.length === 0
+              ? "Sin resultados"
+              : `${products.length} ${products.length === 1 ? "producto" : "productos"}`}
+          </p>
+          <CatalogFiltersSheet categories={categoryOptions} defaultValues={defaultValues} />
+        </div>
+      </div>
+
+      <div className="grid gap-10 md:grid-cols-[220px_1fr] lg:gap-12">
+        <aside className="hidden md:block">
+          <div className="sticky top-24">
+            <CatalogFilters categories={categoryOptions} defaultValues={defaultValues} />
+          </div>
         </aside>
         <div>
           {products.length === 0 ? (
-            <p className="text-muted-foreground py-16 text-center">
-              No encontramos productos con esos filtros.
-            </p>
+            <div className="flex flex-col items-center gap-4 py-24 text-center">
+              <p className="text-muted-foreground text-lg">
+                No encontramos productos con esos filtros.
+              </p>
+              <Button asChild variant="outline">
+                <Link href="/catalog">Limpiar filtros</Link>
+              </Button>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
               {products.map((product) => (

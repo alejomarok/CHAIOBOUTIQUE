@@ -24,7 +24,7 @@ export async function DashboardLink() {
 
   if (destination === "/admin") {
     return (
-      <Button asChild size="sm">
+      <Button asChild>
         <Link href="/admin">Ir al panel</Link>
       </Button>
     );
@@ -32,7 +32,7 @@ export async function DashboardLink() {
 
   if (destination === "/pos") {
     return (
-      <Button asChild size="sm">
+      <Button asChild>
         <Link href="/pos">Ir al POS</Link>
       </Button>
     );

@@ -21,6 +21,7 @@
 // from any Node-safe CLI/tooling context.
 import { prisma } from "@/lib/db-core";
 import { env } from "@/lib/env-core";
+import { seedConsumidorFinal } from "@/modules/customers/seed-core";
 import {
   seedPermissions,
   seedRolesAndAssignments,
@@ -162,4 +163,8 @@ export async function resetTestDatabase(): Promise<void> {
   // state that left stock permanently invisible with zero default warehouse
   // configured).
   await seedDefaultWarehouse();
+  // Same reasoning — every integration/e2e test that exercises Sales/POS
+  // "Consumidor Final" defaults, or that just expects the customers admin
+  // area to reflect a real fresh install, needs this to already exist.
+  await seedConsumidorFinal();
 }
