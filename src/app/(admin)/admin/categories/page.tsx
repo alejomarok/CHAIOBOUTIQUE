@@ -13,6 +13,7 @@ import { listCategories } from "@/modules/categories/service";
 
 import { CategoryRowActions } from "./category-row-actions";
 import { CreateCategoryDialog } from "./create-category-dialog";
+import { StorefrontNavToggle } from "./storefront-nav-toggle";
 
 export const metadata = { title: "Categorías" };
 
@@ -28,7 +29,7 @@ export default async function CategoriesPage() {
         <div>
           <h1 className="font-heading text-2xl font-semibold">Categorías</h1>
           <p className="text-muted-foreground text-sm">
-            Organizan el catálogo. Pueden formar una jerarquía.
+            Organizan el catálogo. Solo las que actives abajo aparecen en la navegación pública.
           </p>
         </div>
         {canManage && (
@@ -46,6 +47,7 @@ export default async function CategoriesPage() {
               <TableHead>Categoría padre</TableHead>
               <TableHead>Productos</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead>Navegación pública</TableHead>
               {canManage && <TableHead className="w-10" />}
             </TableRow>
           </TableHeader>
@@ -59,6 +61,19 @@ export default async function CategoriesPage() {
                   <Badge variant={category.isActive ? "default" : "outline"}>
                     {category.isActive ? "Activa" : "Archivada"}
                   </Badge>
+                </TableCell>
+                <TableCell>
+                  {canManage ? (
+                    <StorefrontNavToggle
+                      id={category.id}
+                      checked={category.showInStorefrontNav}
+                      disabled={!category.isActive}
+                    />
+                  ) : (
+                    <Badge variant={category.showInStorefrontNav ? "default" : "outline"}>
+                      {category.showInStorefrontNav ? "Visible" : "Oculta"}
+                    </Badge>
+                  )}
                 </TableCell>
                 {canManage && (
                   <TableCell>

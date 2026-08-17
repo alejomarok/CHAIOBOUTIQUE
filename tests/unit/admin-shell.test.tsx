@@ -15,14 +15,17 @@ const { AdminShell } = await import("@/components/layout/admin-shell");
 describe("AdminShell", () => {
   afterEach(cleanup);
 
-  const items = [
-    { href: "/admin", label: "Panel", iconName: "layout-dashboard" as const },
+  const groups = [
+    {
+      label: "General",
+      items: [{ href: "/admin", label: "Panel", iconName: "layout-dashboard" as const }],
+    },
   ];
   const user = { name: "Admin Test", email: "admin@chaioboutique.local" };
 
   it("points every wordmark instance back to the public storefront, never to /admin", () => {
     render(
-      <AdminShell items={items} user={user}>
+      <AdminShell groups={groups} user={user}>
         <div>content</div>
       </AdminShell>,
     );
@@ -36,7 +39,7 @@ describe("AdminShell", () => {
 
   it('renders a "Volver a la tienda" action that also points to /', () => {
     render(
-      <AdminShell items={items} user={user}>
+      <AdminShell groups={groups} user={user}>
         <div>content</div>
       </AdminShell>,
     );
@@ -50,7 +53,7 @@ describe("AdminShell", () => {
 
   it("preserves active-nav styling on the current admin route", () => {
     render(
-      <AdminShell items={items} user={user}>
+      <AdminShell groups={groups} user={user}>
         <div>content</div>
       </AdminShell>,
     );

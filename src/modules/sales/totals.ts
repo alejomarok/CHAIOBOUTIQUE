@@ -69,3 +69,46 @@ export function computeSaleTotals(
   }
   return { subtotalAmount, discountTotalAmount, totalAmount };
 }
+
+// --- Sales Payments foundation ---------------------------------------------
+// Pure derivation of the Sale-level payment aggregate — never trusted from
+// the client, always recomputed server-side from the authoritative
+// paidAmount (itself a persisted SUM of ACTIVE SalePayment rows, kept in
+// sync transactionally by modules/sales/payment-core.ts). A zero-total sale
+// (fully discounted, or simply no items yet) is treated as PAID — there is
+// nothing left to collect — rather than UNPAID, which would be misleading.
+export type SalePaymentStatusValue = "UNPAID" | "PARTIALLY_PAID" | "PAID";
+
+export function computeSalePaymentStatus(
+  totalAmount: bigint,
+  paidAmount: bigint,
+): SalePaymentStatusValue {
+  if (paidAmount <= 0n) return totalAmount <= 0n ? "PAID" : "UNPAID";
+  if (paidAmount >= totalAmount) return "PAID";
+  return "PARTIALLY_PAID";
+}
+
+export interface SalePaymentSummary {
+  totalAmount: bigint;
+  paidAmount: bigint;
+  // totalAmount - paidAmount, floored at 0 — the invariant enforced by
+  // registerSalePayment means this should never actually go negative, but
+  // display code should never surface a negative "saldo pendiente" even in
+  // the face of an unforeseen bug elsewhere.
+  remainingAmount: bigint;
+  paymentStatus: SalePaymentStatusValue;
+}
+
+export function getSalePaymentSummary(sale: {
+  totalAmount: bigint;
+  paidAmount: bigint;
+  paymentStatus: SalePaymentStatusValue;
+}): SalePaymentSummary {
+  const remaining = sale.totalAmount - sale.paidAmount;
+  return {
+    totalAmount: sale.totalAmount,
+    paidAmount: sale.paidAmount,
+    remainingAmount: remaining < 0n ? 0n : remaining,
+    paymentStatus: sale.paymentStatus,
+  };
+}

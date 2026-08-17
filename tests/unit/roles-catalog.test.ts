@@ -107,4 +107,17 @@ describe("role catalog", () => {
       expect(role.permissions).not.toContain("product_imports.execute");
     }
   });
+
+  it("sales.record_payment/void_payment are granted to the roles that actually run POS (ADMIN, MANAGER, SALES_REPRESENTATIVE) and no one else", () => {
+    for (const key of ["sales.record_payment", "sales.void_payment"] as const) {
+      for (const roleKey of ["ADMIN", "MANAGER", "SALES_REPRESENTATIVE"]) {
+        const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+        expect(role.permissions, `${roleKey} should have "${key}"`).toContain(key);
+      }
+      for (const roleKey of ["WAREHOUSE", "ACCOUNTANT", "CUSTOMER"]) {
+        const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+        expect(role.permissions, `${roleKey} should NOT have "${key}"`).not.toContain(key);
+      }
+    }
+  });
 });

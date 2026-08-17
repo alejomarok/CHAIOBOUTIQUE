@@ -7,22 +7,27 @@ import { DesktopNavLinks } from "@/components/layout/desktop-nav-links";
 import { Logo } from "@/components/layout/logo";
 import { MobileNav, type NavLinkItem } from "@/components/layout/mobile-nav";
 import { Input } from "@/components/ui/input";
-import { listCategories } from "@/modules/categories/service";
+import { listStorefrontNavCategories } from "@/modules/categories/service";
 
 const STATIC_LINKS_BEFORE: NavLinkItem[] = [{ href: "/", label: "Inicio" }];
 const STATIC_LINKS_AFTER: NavLinkItem[] = [{ href: "/catalog?sort=newest", label: "Novedades" }];
 const MAX_CATEGORY_LINKS = 5;
 
-// Category links are read from the real catalog, never hardcoded — a
-// category that doesn't exist yet can't become a broken nav link, and a
-// renamed/removed category never leaves a stale one behind. "Ofertas" is
-// deliberately omitted: there is no working "on sale" filter/route yet,
-// and this pass is visual-only — a nav item with nowhere real to go is
-// exactly the "dead link" this phase asks to avoid.
+// Category links come from listStorefrontNavCategories — categories an
+// admin has explicitly opted into the public nav (Category.
+// showInStorefrontNav), never a raw dump of every active category. A
+// category left at its default (not opted in) — internal, QA, an import
+// staging run, anything not deliberately curated — can never appear here,
+// regardless of how many real products it has. See that function's doc
+// comment and prisma/schema.prisma's field comment for the full rule.
+// "Ofertas" is deliberately omitted: there is no working "on sale"
+// filter/route yet, and a nav item with nowhere real to go is exactly the
+// "dead link" this phase asks to avoid. Sales/POS/Inventory/Customers are
+// never candidates here at all — those are administrative concepts with
+// no public route; this function only ever reads Category rows.
 async function getNavLinks(): Promise<NavLinkItem[]> {
-  const categories = await listCategories();
+  const categories = await listStorefrontNavCategories();
   const topLevel = categories
-    .filter((category) => category.parentId === null && category.isActive)
     .slice(0, MAX_CATEGORY_LINKS)
     .map((category) => ({ href: `/catalog?category=${category.id}`, label: category.name }));
 

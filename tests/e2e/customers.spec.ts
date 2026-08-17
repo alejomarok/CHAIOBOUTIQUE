@@ -16,8 +16,10 @@ test.describe("admin customer management (real DB, real HTTP)", () => {
     await page.getByRole("button", { name: "Iniciar sesión" }).click();
     await expect(page).toHaveURL(/\/admin/);
 
-    // 1. Ir a Clientes.
-    await page.getByRole("link", { name: "Clientes" }).click();
+    // 1. Ir a Clientes — scoped to the sidebar nav landmark: the dashboard
+    // (the page we're on right after login) also has its own "Clientes"
+    // summary card/link, so an unscoped locator would be ambiguous here.
+    await page.getByRole("navigation").getByRole("link", { name: "Clientes", exact: true }).click();
     await expect(page).toHaveURL(/\/admin\/customers$/);
 
     // 2. Nuevo cliente.

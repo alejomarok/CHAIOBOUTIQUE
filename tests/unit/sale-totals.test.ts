@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { computeSaleItemTotals, computeSaleTotals, InvalidSaleItemError } from "@/modules/sales/totals";
+import {
+  computeSaleItemTotals,
+  computeSalePaymentStatus,
+  computeSaleTotals,
+  getSalePaymentSummary,
+  InvalidSaleItemError,
+} from "@/modules/sales/totals";
 
 describe("computeSaleItemTotals", () => {
   it("computes subtotal = quantity * unitPrice, total = subtotal - discount", () => {
@@ -77,5 +83,48 @@ describe("computeSaleTotals", () => {
     expect(totals.subtotalAmount).toBe(0n);
     expect(totals.discountTotalAmount).toBe(0n);
     expect(totals.totalAmount).toBe(0n);
+  });
+});
+
+describe("computeSalePaymentStatus", () => {
+  it("is UNPAID when nothing has been paid", () => {
+    expect(computeSalePaymentStatus(100000n, 0n)).toBe("UNPAID");
+  });
+
+  it("is PARTIALLY_PAID when paid is more than 0 but less than the total", () => {
+    expect(computeSalePaymentStatus(100000n, 60000n)).toBe("PARTIALLY_PAID");
+  });
+
+  it("is PAID when paid equals the total exactly", () => {
+    expect(computeSalePaymentStatus(100000n, 100000n)).toBe("PAID");
+  });
+
+  it("is PAID when paid exceeds the total (defensive — should never happen given the overpayment guard)", () => {
+    expect(computeSalePaymentStatus(100000n, 150000n)).toBe("PAID");
+  });
+
+  it("treats a zero-total sale as PAID rather than UNPAID — nothing is owed", () => {
+    expect(computeSalePaymentStatus(0n, 0n)).toBe("PAID");
+  });
+});
+
+describe("getSalePaymentSummary", () => {
+  it("derives the remaining amount as total minus paid", () => {
+    const summary = getSalePaymentSummary({
+      totalAmount: 120000n,
+      paidAmount: 80000n,
+      paymentStatus: "PARTIALLY_PAID",
+    });
+    expect(summary.remainingAmount).toBe(40000n);
+    expect(summary.paymentStatus).toBe("PARTIALLY_PAID");
+  });
+
+  it("floors the remaining amount at 0 rather than going negative", () => {
+    const summary = getSalePaymentSummary({
+      totalAmount: 100000n,
+      paidAmount: 150000n,
+      paymentStatus: "PAID",
+    });
+    expect(summary.remainingAmount).toBe(0n);
   });
 });

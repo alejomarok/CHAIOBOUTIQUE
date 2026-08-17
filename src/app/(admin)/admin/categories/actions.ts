@@ -11,6 +11,9 @@ const createCategorySchema = z.object({
   parentId: z.string().min(1).optional(),
   description: z.string().optional(),
   defaultSizeGroupId: z.string().min(1).optional(),
+  // Defaults to false (never public) unless explicitly checked at
+  // creation time — see Category.showInStorefrontNav's schema comment.
+  showInStorefrontNav: z.boolean().optional(),
 });
 
 export async function createCategoryAction(input: z.infer<typeof createCategorySchema>) {
@@ -22,10 +25,13 @@ export async function createCategoryAction(input: z.infer<typeof createCategoryS
       parentId: data.parentId ?? null,
       description: data.description ?? null,
       defaultSizeGroupId: data.defaultSizeGroupId ?? null,
+      showInStorefrontNav: data.showInStorefrontNav ?? false,
     },
     actor.id,
   );
   revalidatePath("/admin/categories");
+  revalidatePath("/");
+  revalidatePath("/catalog");
 }
 
 const updateCategorySchema = z.object({
@@ -35,6 +41,7 @@ const updateCategorySchema = z.object({
   description: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
   defaultSizeGroupId: z.string().nullable().optional(),
+  showInStorefrontNav: z.boolean().optional(),
 });
 
 export async function updateCategoryAction(input: z.infer<typeof updateCategorySchema>) {
@@ -42,6 +49,10 @@ export async function updateCategoryAction(input: z.infer<typeof updateCategoryS
   const { id, ...data } = updateCategorySchema.parse(input);
   await updateCategory(id, data, actor.id);
   revalidatePath("/admin/categories");
+  // A category's public-nav curation changed — the storefront header and
+  // homepage category tiles must reflect it without a manual redeploy.
+  revalidatePath("/");
+  revalidatePath("/catalog");
 }
 
 export async function archiveCategoryAction(input: { id: string }) {

@@ -15,12 +15,20 @@ import { minorUnitsToDisplay } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
 import { getSystemDefaultCustomer, listCustomers } from "@/modules/customers/customer";
 import { getCustomerDisplayName } from "@/modules/customers/normalize";
+import {
+  PAYMENT_METHOD_LABELS_ES,
+  PAYMENT_STATUS_BADGE_VARIANT,
+  PAYMENT_STATUS_LABELS_ES,
+} from "@/modules/sales/payment-labels";
 import { getSaleById } from "@/modules/sales/sale";
+import { getSalePaymentSummary } from "@/modules/sales/totals";
 import { listWarehouses } from "@/modules/warehouses/service";
 import type { SaleStatus } from "@/generated/prisma/client";
 
 import { SaleForm } from "../sale-form";
 import { CancelSaleButton } from "./cancel-sale-button";
+import { RegisterPaymentDialog } from "./register-payment-dialog";
+import { VoidPaymentButton } from "./void-payment-button";
 
 export const metadata = { title: "Detalle de venta" };
 
@@ -49,6 +57,8 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
   const canCancel = user.permissions.has("sales.cancel");
   const canSelectWarehouse = user.permissions.has("warehouses.view");
   const canViewMovements = user.permissions.has("stock.view_movements");
+  const canRecordPayment = user.permissions.has("sales.record_payment");
+  const canVoidPayment = user.permissions.has("sales.void_payment");
   const { id } = await params;
 
   const sale = await getSaleById(id);
@@ -213,6 +223,86 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
           </div>
         </CardContent>
       </Card>
+
+      {sale.status !== "DRAFT" && (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <CardTitle>Pagos</CardTitle>
+            {sale.status === "CONFIRMED" && canRecordPayment && (
+              <RegisterPaymentDialog
+                saleId={sale.id}
+                remainingAmount={getSalePaymentSummary(sale).remainingAmount}
+              />
+            )}
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {(() => {
+              const summary = getSalePaymentSummary(sale);
+              return (
+                <div className="flex flex-col gap-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total de la venta</span>
+                    <span>{minorUnitsToDisplay(summary.totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Pagado</span>
+                    <span>{minorUnitsToDisplay(summary.paidAmount)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-1 font-medium">
+                    <span>Saldo pendiente</span>
+                    <span>{minorUnitsToDisplay(summary.remainingAmount)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-muted-foreground">Estado del pago</span>
+                    <Badge variant={PAYMENT_STATUS_BADGE_VARIANT[summary.paymentStatus]}>
+                      {PAYMENT_STATUS_LABELS_ES[summary.paymentStatus]}
+                    </Badge>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {sale.payments.length === 0 ? (
+              <p className="text-muted-foreground text-sm">Todavía no se registraron pagos.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {sale.payments.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className={`border-border flex flex-col gap-1 rounded-lg border p-3 text-sm ${
+                      payment.status === "VOIDED" ? "opacity-60" : ""
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{PAYMENT_METHOD_LABELS_ES[payment.method]}</span>
+                        <span>{minorUnitsToDisplay(payment.amount)}</span>
+                        {payment.status === "VOIDED" && <Badge variant="outline">Anulado</Badge>}
+                      </div>
+                      {payment.status === "ACTIVE" && canVoidPayment && (
+                        <VoidPaymentButton paymentId={payment.id} />
+                      )}
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      {new Date(payment.paidAt).toLocaleString("es-AR")}
+                      {payment.reference && ` · Ref: ${payment.reference}`}
+                      {payment.createdBy && ` · Registrado por ${payment.createdBy.name}`}
+                    </p>
+                    {payment.notes && <p className="text-xs">{payment.notes}</p>}
+                    {payment.status === "VOIDED" && (
+                      <p className="text-muted-foreground text-xs">
+                        Anulado {payment.voidedAt && new Date(payment.voidedAt).toLocaleString("es-AR")}
+                        {payment.voidedBy && ` por ${payment.voidedBy.name}`}
+                        {payment.voidReason && ` · Motivo: ${payment.voidReason}`}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {sale.notes && (
         <Card>

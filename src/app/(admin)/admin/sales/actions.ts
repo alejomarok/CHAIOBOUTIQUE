@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { displayToMinorUnits, InvalidMoneyInputError, serializeMoney } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
+import { MANUAL_PAYMENT_METHODS, registerSalePayment, voidSalePayment } from "@/modules/sales/payment";
 import {
   cancelSale,
   confirmSale,
@@ -23,6 +24,23 @@ const moneyField = z
   .optional()
   .transform((value, ctx) => {
     if (!value) return null;
+    try {
+      return displayToMinorUnits(value);
+    } catch (error) {
+      if (error instanceof InvalidMoneyInputError) {
+        ctx.addIssue({ code: "custom", message: "Monto inválido" });
+        return z.NEVER;
+      }
+      throw error;
+    }
+  });
+
+// Same parsing as moneyField, but mandatory — a payment's amount can never
+// be blank/skipped the way a sale item's unit-price override can.
+const requiredMoneyField = z
+  .string()
+  .min(1, "Ingresá un importe.")
+  .transform((value, ctx) => {
     try {
       return displayToMinorUnits(value);
     } catch (error) {
@@ -70,6 +88,15 @@ function toFriendlyMessage(error: unknown): string {
       "NoDefaultWarehouseError",
       "InactiveWarehouseError",
       "CancellationReasonRequiredError",
+      "SaleHasActivePaymentsError",
+      "SalePaymentNotFoundError",
+      "SaleNotConfirmedError",
+      "SaleCancelledCannotAcceptPaymentsError",
+      "InvalidPaymentAmountError",
+      "PaymentExceedsRemainingBalanceError",
+      "DuplicatePaymentSubmissionError",
+      "PaymentAlreadyVoidedError",
+      "VoidReasonRequiredError",
     ];
     if (knownErrors.includes(error.name)) return error.message;
   }
@@ -223,4 +250,70 @@ export async function getAvailableStockForVariantsAction(
   const data = stockQuerySchema.parse(input);
   const stock = await getAvailableStockForVariants(data.variantIds, data.warehouseId);
   return Object.fromEntries(stock);
+}
+
+// =============================================================================
+// Sales Payments foundation
+// =============================================================================
+
+const registerPaymentSchema = z.object({
+  saleId: z.string().min(1),
+  method: z.enum(MANUAL_PAYMENT_METHODS),
+  amount: requiredMoneyField,
+  reference: z.string().optional(),
+  // "YYYY-MM-DD" from an <input type="date">, interpreted in local time —
+  // blank means "now" (the common case: registering a payment as it
+  // happens), never required to backdate.
+  paidAt: z.string().optional(),
+  notes: z.string().optional(),
+  // Client-generated at form-mount time (crypto.randomUUID()) and
+  // resubmitted unchanged on retry — see modules/sales/payment-core.ts's
+  // registerSalePayment for how this protects against a double-click or
+  // network retry double-charging the sale.
+  idempotencyKey: z.string().min(1),
+});
+
+export async function registerSalePaymentAction(input: z.input<typeof registerPaymentSchema>) {
+  const actor = await requirePermission("sales.record_payment");
+  const data = registerPaymentSchema.parse(input);
+
+  try {
+    await registerSalePayment(
+      {
+        saleId: data.saleId,
+        method: data.method,
+        amount: data.amount,
+        reference: data.reference || null,
+        notes: data.notes || null,
+        paidAt: data.paidAt ? new Date(`${data.paidAt}T00:00:00`) : undefined,
+        idempotencyKey: data.idempotencyKey,
+      },
+      actor.id,
+    );
+  } catch (error) {
+    throw new Error(toFriendlyMessage(error));
+  }
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${data.saleId}`);
+}
+
+const voidPaymentSchema = z.object({
+  paymentId: z.string().min(1),
+  reason: z.string().min(1, "El motivo de anulación es obligatorio."),
+});
+
+export async function voidSalePaymentAction(input: z.infer<typeof voidPaymentSchema>) {
+  const actor = await requirePermission("sales.void_payment");
+  const data = voidPaymentSchema.parse(input);
+
+  const payment = await (async () => {
+    try {
+      return await voidSalePayment(data.paymentId, data.reason, actor.id);
+    } catch (error) {
+      throw new Error(toFriendlyMessage(error));
+    }
+  })();
+
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${payment.saleId}`);
 }

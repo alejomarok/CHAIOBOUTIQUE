@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/table";
 import { minorUnitsToDisplay } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
+import { PAYMENT_STATUS_BADGE_VARIANT, PAYMENT_STATUS_LABELS_ES } from "@/modules/sales/payment-labels";
 import { listSales } from "@/modules/sales/sale";
+import type { SalePaymentStatusValue } from "@/modules/sales/totals";
 import type { SaleStatus } from "@/generated/prisma/client";
 
 export const metadata = { title: "Ventas" };
@@ -34,11 +36,15 @@ const STATUS_BADGE_VARIANT: Record<SaleStatus, "default" | "outline" | "secondar
 };
 
 interface SalesPageProps {
-  searchParams: Promise<{ q?: string; status?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; paymentStatus?: string; page?: string }>;
 }
 
 function isValidStatus(value: string | undefined): value is SaleStatus {
   return value === "DRAFT" || value === "CONFIRMED" || value === "CANCELLED";
+}
+
+function isValidPaymentStatus(value: string | undefined): value is SalePaymentStatusValue {
+  return value === "UNPAID" || value === "PARTIALLY_PAID" || value === "PAID";
 }
 
 export default async function SalesPage({ searchParams }: SalesPageProps) {
@@ -48,10 +54,12 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
   const params = await searchParams;
   const page = Math.max(1, Number(params.page) || 1);
   const status = isValidStatus(params.status) ? params.status : undefined;
+  const paymentStatus = isValidPaymentStatus(params.paymentStatus) ? params.paymentStatus : undefined;
 
   const { sales, total } = await listSales({
     search: params.q || undefined,
     status,
+    paymentStatus,
     take: PAGE_SIZE,
     skip: (page - 1) * PAGE_SIZE,
   });
@@ -98,6 +106,20 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
             <option value="CANCELLED">Cancelada</option>
           </select>
         </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="paymentStatus">Estado del pago</Label>
+          <select
+            id="paymentStatus"
+            name="paymentStatus"
+            defaultValue={params.paymentStatus ?? ""}
+            className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+          >
+            <option value="">Todos</option>
+            <option value="UNPAID">Sin pagar</option>
+            <option value="PARTIALLY_PAID">Pago parcial</option>
+            <option value="PAID">Pagada</option>
+          </select>
+        </div>
         <Button type="submit" size="sm" variant="outline">
           Buscar
         </Button>
@@ -124,6 +146,8 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
                 <TableHead>Fecha</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Total</TableHead>
+                <TableHead>Pagado</TableHead>
+                <TableHead>Estado del pago</TableHead>
                 <TableHead>Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -143,6 +167,12 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
                     </Badge>
                   </TableCell>
                   <TableCell>{minorUnitsToDisplay(sale.totalAmount)}</TableCell>
+                  <TableCell>{minorUnitsToDisplay(sale.paidAmount)}</TableCell>
+                  <TableCell>
+                    <Badge variant={PAYMENT_STATUS_BADGE_VARIANT[sale.paymentStatus]}>
+                      {PAYMENT_STATUS_LABELS_ES[sale.paymentStatus]}
+                    </Badge>
+                  </TableCell>
                   <TableCell>
                     <Button asChild size="sm" variant="outline">
                       <Link href={`/admin/sales/${sale.id}`}>Ver</Link>

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -40,6 +41,7 @@ const formSchema = z.object({
   parentId: z.string().optional(),
   description: z.string().optional(),
   defaultSizeGroupId: z.string().optional(),
+  showInStorefrontNav: z.boolean(),
 });
 type FormInput = z.infer<typeof formSchema>;
 
@@ -55,7 +57,13 @@ export function CreateCategoryDialog({
 
   const form = useForm<FormInput>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: "", parentId: "", description: "", defaultSizeGroupId: "" },
+    defaultValues: {
+      name: "",
+      parentId: "",
+      description: "",
+      defaultSizeGroupId: "",
+      showInStorefrontNav: false,
+    },
   });
 
   async function onSubmit(values: FormInput) {
@@ -66,6 +74,7 @@ export function CreateCategoryDialog({
         parentId: values.parentId || undefined,
         description: values.description || undefined,
         defaultSizeGroupId: values.defaultSizeGroupId || undefined,
+        showInStorefrontNav: values.showInStorefrontNav,
       });
       toast.success("Categoría creada.");
       form.reset();
@@ -162,6 +171,24 @@ export function CreateCategoryDialog({
                     Se propone automáticamente al crear un producto en esta categoría.
                   </p>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="showInStorefrontNav"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start gap-3">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                  <div className="flex flex-col gap-1">
+                    <FormLabel className="font-normal">Mostrar en navegación pública</FormLabel>
+                    <p className="text-muted-foreground text-xs">
+                      Aparece en el menú y en &quot;Explorá por categoría&quot; de la tienda. Podés
+                      cambiarlo después.
+                    </p>
+                  </div>
                 </FormItem>
               )}
             />

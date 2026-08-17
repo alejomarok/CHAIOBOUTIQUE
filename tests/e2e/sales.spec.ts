@@ -134,6 +134,199 @@ test.describe("admin sales/POS foundation (real DB, real HTTP)", () => {
     expect(balanceAfterCancel?.quantity).toBe(10);
   });
 
+  test("registers a partial payment, then a second payment reaching PAID, and shows both in the payment history", async ({
+    page,
+  }) => {
+    const actor = await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_FIXTURE.email } });
+
+    const category = await createCategory({ name: `Pagos E2E Cat ${Date.now()}` }, actor.id);
+    const product = await createProduct(
+      {
+        name: `Pagos E2E Producto ${Date.now()}`,
+        categoryId: category.id,
+        defaultPriceAmount: 100000n,
+      },
+      actor.id,
+    );
+    const sku = `PAY-E2E-${Date.now()}`;
+    const [variant] = await createVariants(
+      product.id,
+      [{ sizeOptionId: null, colorId: null, sku }],
+      actor.id,
+    );
+
+    const warehouse = await getDefaultWarehouse();
+    if (!warehouse) throw new Error("No default warehouse seeded — check reset-db.ts.");
+    await adjustInventory({
+      variantId: variant.id,
+      warehouseId: warehouse.id,
+      quantityDelta: 10,
+      movementType: "INITIAL_STOCK",
+      actorId: actor.id,
+    });
+
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(ADMIN_FIXTURE.email);
+    await page.getByLabel("Contraseña").fill(ADMIN_FIXTURE.password);
+    await page.getByRole("button", { name: "Iniciar sesión" }).click();
+    await expect(page).toHaveURL(/\/admin/);
+
+    // 1. Crear y confirmar una venta de $1.000,00 (total de la venta, un
+    // solo ítem a ese precio).
+    await page.goto("/admin/sales/new");
+    await page.getByPlaceholder("Buscar por nombre, SKU o código de barras").fill(sku);
+    await page.getByRole("button", { name: "Buscar" }).click();
+    await expect(page.getByText(sku, { exact: true })).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Agregar" }).click();
+    await page.getByRole("button", { name: "Confirmar venta" }).click();
+    await expect(page).toHaveURL(/\/admin\/sales\/[a-z0-9]{20,}$/, { timeout: 15_000 });
+    await expect(page.getByText("Confirmada", { exact: true })).toBeVisible();
+    const saleId = page.url().split("/").pop()!;
+
+    // 2. Todavía no hay pagos — "Sin pagar".
+    await expect(page.getByText("Sin pagar")).toBeVisible();
+
+    // 3. Registrar un pago parcial por transferencia: $600,00 de $1.000,00.
+    await page.getByRole("button", { name: "Registrar pago" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("combobox").click();
+    await page.getByRole("option", { name: "Transferencia" }).click();
+    await dialog.getByLabel("Referencia / número de operación").fill("OP-98765");
+    await dialog.getByLabel("Importe").fill("600,00");
+    await dialog.getByRole("button", { name: "Registrar pago" }).click();
+    await expect(page.getByText("Pago registrado correctamente.")).toBeVisible({ timeout: 10_000 });
+    // The dialog's own subtitle also shows the just-updated "Saldo
+    // pendiente" figure for a moment while closing — wait for it to be
+    // fully gone before reading the figure from the page behind it,
+    // otherwise both spans match ambiguously.
+    await expect(dialog).not.toBeVisible();
+
+    // 4. El detalle se actualiza sin recargar manualmente: saldo pendiente
+    // $400,00, estado "Pago parcial". A regex on the bare digits (not the
+    // literal "$" prefix) — same approach as the existing confirmed-sale
+    // test above, since Intl's exact currency-symbol spacing isn't worth
+    // pinning to.
+    await expect(page.getByText("Pago parcial")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/400,00/)).toBeVisible();
+
+    // 5. Registrar el pago restante en efectivo — sin campo de referencia
+    // (no es relevante para efectivo).
+    await page.getByRole("button", { name: "Registrar pago" }).click();
+    await expect(dialog.getByLabel("Importe")).toBeVisible();
+    await expect(dialog.getByLabel("Referencia / número de operación")).not.toBeVisible();
+    await dialog.getByLabel("Importe").fill("400,00");
+    await dialog.getByRole("button", { name: "Registrar pago" }).click();
+    await expect(page.getByText("Pago registrado correctamente.")).toBeVisible({ timeout: 10_000 });
+    await expect(dialog).not.toBeVisible();
+
+    // 6. Ahora "Pagada" — sin recarga manual. (The exact final $0,00 saldo
+    // figure isn't asserted via text here since "0,00" also legitimately
+    // appears in the always-zero Descuentos/Impuestos rows on this page;
+    // the DB assertions below cover the exact figure precisely instead.)
+    await expect(page.getByText("Pagada", { exact: true })).toBeVisible({ timeout: 10_000 });
+
+    // 7. El historial de pagos muestra ambos movimientos, con medio, monto
+    // y referencia cuando corresponde.
+    await expect(page.getByText("Transferencia")).toBeVisible();
+    await expect(page.getByText("Ref: OP-98765")).toBeVisible();
+    await expect(page.getByText("Efectivo")).toBeVisible();
+
+    const sale = await prisma.sale.findUniqueOrThrow({ where: { id: saleId } });
+    expect(sale.paidAmount).toBe(100000n);
+    expect(sale.paymentStatus).toBe("PAID");
+  });
+
+  test("a payment cannot exceed the remaining balance, and cancelling a sale with an active payment is blocked", async ({
+    page,
+  }) => {
+    const actor = await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_FIXTURE.email } });
+
+    const category = await createCategory({ name: `Pagos E2E Cat B ${Date.now()}` }, actor.id);
+    const product = await createProduct(
+      {
+        name: `Pagos E2E Producto B ${Date.now()}`,
+        categoryId: category.id,
+        defaultPriceAmount: 100000n,
+      },
+      actor.id,
+    );
+    const sku = `PAY-E2E-B-${Date.now()}`;
+    const [variant] = await createVariants(
+      product.id,
+      [{ sizeOptionId: null, colorId: null, sku }],
+      actor.id,
+    );
+    const warehouse = await getDefaultWarehouse();
+    if (!warehouse) throw new Error("No default warehouse seeded — check reset-db.ts.");
+    await adjustInventory({
+      variantId: variant.id,
+      warehouseId: warehouse.id,
+      quantityDelta: 5,
+      movementType: "INITIAL_STOCK",
+      actorId: actor.id,
+    });
+
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(ADMIN_FIXTURE.email);
+    await page.getByLabel("Contraseña").fill(ADMIN_FIXTURE.password);
+    await page.getByRole("button", { name: "Iniciar sesión" }).click();
+    await expect(page).toHaveURL(/\/admin/);
+
+    await page.goto("/admin/sales/new");
+    await page.getByPlaceholder("Buscar por nombre, SKU o código de barras").fill(sku);
+    await page.getByRole("button", { name: "Buscar" }).click();
+    await expect(page.getByText(sku, { exact: true })).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Agregar" }).click();
+    await page.getByRole("button", { name: "Confirmar venta" }).click();
+    await expect(page).toHaveURL(/\/admin\/sales\/[a-z0-9]{20,}$/, { timeout: 15_000 });
+
+    // Un pago que supera el total ($2.000,00 sobre una venta de $1.000,00)
+    // es rechazado por el servidor.
+    await page.getByRole("button", { name: "Registrar pago" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Importe").fill("2000,00");
+    await dialog.getByRole("button", { name: "Registrar pago" }).click();
+    await expect(page.getByText(/supera el saldo pendiente/)).toBeVisible({ timeout: 10_000 });
+    // Scoped to the dialog — "Cancelar" would otherwise also substring-match
+    // the page's own "Cancelar venta" button.
+    await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+    // Wait for the close animation to fully finish before reopening —
+    // otherwise the reopened dialog's own open animation can race with the
+    // previous instance's close animation and detach the element mid-click.
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByText("Sin pagar")).toBeVisible();
+
+    // Un pago válido dentro del saldo se registra normalmente...
+    await page.getByRole("button", { name: "Registrar pago" }).click();
+    await dialog.getByLabel("Importe").fill("1000,00");
+    await dialog.getByRole("button", { name: "Registrar pago" }).click();
+    await expect(page.getByText("Pagada", { exact: true })).toBeVisible({ timeout: 10_000 });
+
+    // ...y ahora cancelar la venta está bloqueado mientras el pago siga activo.
+    await page.getByRole("button", { name: "Cancelar venta" }).click();
+    await page.getByPlaceholder("Motivo de cancelación (obligatorio)").fill("cliente se arrepintió");
+    await page.getByRole("button", { name: "Confirmar cancelación" }).click();
+    await expect(page.getByText(/tiene pagos registrados/)).toBeVisible({ timeout: 10_000 });
+
+    // Anular el pago primero...
+    await page.getByRole("button", { name: "Anular pago" }).click();
+    await page.getByPlaceholder("Motivo de anulación (obligatorio)").fill("venta se cancela");
+    await page.getByRole("button", { name: "Confirmar anulación" }).click();
+    await expect(page.getByText("Sin pagar")).toBeVisible({ timeout: 10_000 });
+
+    // Reload for a clean "Cancelar venta" trigger — the earlier blocked
+    // attempt left CancelSaleButton's own local "confirming" state expanded
+    // (it isn't reset on error), which a reload sidesteps entirely rather
+    // than depending on that incidental client-state detail.
+    await page.reload();
+
+    // ...y ahora cancelar la venta funciona.
+    await page.getByRole("button", { name: "Cancelar venta" }).click();
+    await page.getByPlaceholder("Motivo de cancelación (obligatorio)").fill("cliente se arrepintió");
+    await page.getByRole("button", { name: "Confirmar cancelación" }).click();
+    await expect(page.getByText("Cancelada", { exact: true })).toBeVisible({ timeout: 10_000 });
+  });
+
   test("confirming a sale that requests more than the available stock is rejected, and stock stays unchanged", async ({
     page,
   }) => {

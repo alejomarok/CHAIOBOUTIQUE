@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { listCategories } from "@/modules/categories/service";
+import { listStorefrontNavCategories } from "@/modules/categories/service";
 
 const MAX_TILES = 5;
 
@@ -16,10 +16,11 @@ const TILE_ACCENTS = [
 ];
 
 export async function CategoryTiles() {
-  const categories = await listCategories();
-  const tiles = categories
-    .filter((category) => category.parentId === null && category.isActive && category._count.products > 0)
-    .slice(0, MAX_TILES);
+  // Same admin-curated set the header nav uses (Category.showInStorefrontNav)
+  // — never a raw dump of every active category with products. See
+  // listStorefrontNavCategories's doc comment.
+  const categories = await listStorefrontNavCategories();
+  const tiles = categories.filter((category) => category._count.products > 0).slice(0, MAX_TILES);
 
   // A "discover by category" section only earns its place once there's
   // real, browsable variety — otherwise it's skipped rather than padded

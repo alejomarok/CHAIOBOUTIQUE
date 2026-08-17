@@ -20,14 +20,19 @@ export function DesktopNavLinks({ navLinks }: { navLinks: NavLinkItem[] }) {
       {navLinks.map((link) => {
         const isActive = link.href === currentUrl;
         return (
-          <li key={link.href}>
+          <li key={link.href} className="min-w-0">
+            {/* max-w + truncate: a safety net, not the primary defense —
+                the primary defense is that these links are admin-curated
+                (see public-header.tsx) — but an unexpectedly long category
+                name must still never be able to stretch the header. */}
             <Link
               href={link.href}
+              title={link.label}
               aria-current={isActive ? "page" : undefined}
               className={
                 isActive
-                  ? "bg-blush text-foreground rounded-full px-3.5 py-2 font-semibold whitespace-nowrap"
-                  : "text-foreground/70 hover:text-foreground hover:bg-blush/60 rounded-full px-3.5 py-2 whitespace-nowrap transition-colors"
+                  ? "bg-blush text-foreground block max-w-32 truncate rounded-full px-3.5 py-2 font-semibold"
+                  : "text-foreground/70 hover:text-foreground hover:bg-blush/60 block max-w-32 truncate rounded-full px-3.5 py-2 transition-colors"
               }
             >
               {link.label}

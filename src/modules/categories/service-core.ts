@@ -29,6 +29,21 @@ export async function getCategoryById(id: string) {
   return prisma.category.findUnique({ where: { id } });
 }
 
+// The single source of truth for "which categories may a customer see" —
+// the public header's nav and the homepage's "Explorá por categoría" tiles
+// both call this, never listCategories() directly. Requires the explicit
+// showInStorefrontNav opt-in (never just isActive + has products) — see
+// that field's schema comment for why: an active category with real
+// products is not automatically fit for the customer-facing nav (test/QA/
+// internal data satisfies that loose criteria all the time).
+export async function listStorefrontNavCategories() {
+  return prisma.category.findMany({
+    where: { parentId: null, isActive: true, archivedAt: null, showInStorefrontNav: true },
+    include: { _count: { select: { products: true } } },
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+  });
+}
+
 // Walks the ancestor chain of candidateParentId; true if categoryId appears
 // in it (or candidateParentId === categoryId) — i.e. setting this parent
 // would create a cycle. App-level check: Postgres has no declarative
@@ -60,6 +75,10 @@ export interface CreateCategoryInput {
   // The size group products created under this category propose by
   // default — see modules/products/service.ts's createProduct.
   defaultSizeGroupId?: string | null;
+  // Opt-in to the public nav/home tiles — defaults to false (schema
+  // default), so a newly-created category never appears to customers
+  // until an admin deliberately curates it in.
+  showInStorefrontNav?: boolean;
 }
 
 export async function createCategory(input: CreateCategoryInput, actorId: string) {
@@ -76,6 +95,7 @@ export async function createCategory(input: CreateCategoryInput, actorId: string
       description: input.description ?? null,
       displayOrder: input.displayOrder ?? 0,
       defaultSizeGroupId: input.defaultSizeGroupId ?? null,
+      showInStorefrontNav: input.showInStorefrontNav ?? false,
     },
   });
 
@@ -97,6 +117,7 @@ export interface UpdateCategoryInput {
   displayOrder?: number;
   isActive?: boolean;
   defaultSizeGroupId?: string | null;
+  showInStorefrontNav?: boolean;
 }
 
 export async function updateCategory(id: string, input: UpdateCategoryInput, actorId: string) {

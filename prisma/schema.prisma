@@ -86,6 +86,12 @@ model User {
   createdSales   Sale[] @relation("SaleCreatedBy")
   cancelledSales Sale[] @relation("SaleCancelledBy")
 
+  // Phase — Sales Payments foundation back-relations. Same createdBy/
+  // voidedBy actor-separation posture as Sale's own createdSales/
+  // cancelledSales above.
+  createdSalePayments SalePayment[] @relation("SalePaymentCreatedBy")
+  voidedSalePayments  SalePayment[] @relation("SalePaymentVoidedBy")
+
   @@map("user")
 }
 
@@ -255,25 +261,35 @@ model AuditLog {
 // =============================================================================
 
 model Category {
-  id                 String    @id @default(cuid())
-  name               String
-  slug               String    @unique
-  parentId           String?
-  description        String?
-  displayOrder       Int       @default(0)
-  isActive           Boolean   @default(true)
-  archivedAt         DateTime?
-  legacySource       String?
-  legacyId           String?
+  id                  String    @id @default(cuid())
+  name                String
+  slug                String    @unique
+  parentId            String?
+  description         String?
+  displayOrder        Int       @default(0)
+  isActive            Boolean   @default(true)
+  archivedAt          DateTime?
+  legacySource        String?
+  legacyId            String?
+  // Explicit, admin-controlled opt-in for the public storefront's primary
+  // nav and the homepage's "Explorá por categoría" tiles — deliberately
+  // separate from isActive (which only means "usable at all," e.g. still
+  // assignable to a product). Defaults to false: a category someone
+  // creates for testing, an import staging run, or internal organization
+  // never appears to customers just by being active and having products —
+  // it has to be deliberately curated in. See public-header.tsx's
+  // getStorefrontNavCategories / category-tiles.tsx, and
+  // DATABASE.md's "storefront navigation curation" note.
+  showInStorefrontNav Boolean   @default(false)
   // The size group a product created under this category proposes by
   // default (see modules/products/service.ts's createProduct) — a
   // suggestion only, never enforced on existing products. SetNull (not
   // Restrict): losing a stray default-group suggestion is low-stakes,
   // unlike Product.sizeGroupId itself, which a product's variants may
   // genuinely depend on.
-  defaultSizeGroupId String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  defaultSizeGroupId  String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   // Circular-parent prevention is an app-level check in
   // modules/categories/service.ts (walk the ancestor chain before allowing a
@@ -1208,6 +1224,24 @@ model Sale {
   taxTotalAmount      BigInt @default(0)
   totalAmount         BigInt @default(0)
 
+  // --- Payment state — see the SalePayment model's own doc comment above
+  // for the full design. Deliberately a SEPARATE axis from `status` above
+  // (never overloaded into it): a CONFIRMED sale can legitimately be
+  // UNPAID, PARTIALLY_PAID, or PAID, and a CANCELLED sale's payments must
+  // already all be VOIDED before cancellation is even allowed (see
+  // modules/sales/sale-core.ts's cancelSale). Both fields are
+  // server-recomputed, transactionally, by modules/sales/payment-core.ts's
+  // registerSalePayment/voidSalePayment every time the active SalePayment
+  // set for this sale changes — same "persisted, never independently
+  // hand-edited, never trusted from the client" posture as
+  // subtotalAmount/totalAmount above, just recomputed from SalePayment
+  // rows instead of SaleItem rows. NEVER conflate with a future invoicing
+  // status: PAID must never imply INVOICED (see this phase's own notes and
+  // docs/DATABASE.md) — a future invoicing phase adds its own independent
+  // field here, never derives itself from this one.
+  paidAmount    BigInt            @default(0)
+  paymentStatus SalePaymentStatus @default(UNPAID)
+
   notes String?
 
   confirmedAt   DateTime?
@@ -1227,12 +1261,14 @@ model Sale {
   createdBy   User      @relation("SaleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   cancelledBy User?     @relation("SaleCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
 
-  items SaleItem[]
+  items    SaleItem[]
+  payments SalePayment[]
 
   @@index([customerId])
   @@index([warehouseId])
   @@index([status])
   @@index([saleDate])
+  @@index([paymentStatus])
   @@map("sale")
 }
 
@@ -1277,4 +1313,142 @@ model SaleItem {
 
   @@index([saleId])
   @@map("sale_item")
+}
+
+// =============================================================================
+// Phase — Sales Payments foundation. Gives a CONFIRMED Sale a robust,
+// provider-agnostic payment-collection model — explicitly still NOT this
+// phase: ARCA invoicing, invoice PDFs/email delivery, Mercado Pago's actual
+// webhook/API integration, online-order conversion, shipping, or a general
+// returns/refunds module. See docs/DATABASE.md.
+//
+// Design summary:
+//   - Sale.paymentStatus/paidAmount (see the Sale model above) are the
+//     server-authoritative, persisted AGGREGATE — never trusted from the
+//     client, always recomputed transactionally by this module whenever the
+//     active SalePayment set for a sale changes.
+//   - SalePayment rows are immutable once created except for the
+//     void-related fields below (status/voidedAt/voidedById/voidReason) —
+//     same "prefer append + a status flag over destructive edit" posture as
+//     Sale.status itself (a Sale is cancelled, never deleted; a payment is
+//     voided, never deleted or edited). There is no update/delete function
+//     for a payment's own amount/method/reference anywhere in
+//     modules/sales/payment-core.ts.
+//   - A Sale may have many SalePayment rows (split payments across
+//     methods) — Sale.paidAmount is always the SUM of its ACTIVE ones only;
+//     a VOIDED payment stays stored (audit trail) but contributes 0.
+//   - Overpayment is blocked server-side: registering a payment that would
+//     push the active total above Sale.totalAmount is rejected outright,
+//     never silently clamped or recorded as "extra revenue" — see
+//     registerSalePayment's own doc comment for the exact concurrency
+//     mechanism (a `SELECT ... FOR UPDATE` lock on the parent Sale row,
+//     the same "serialize every mutation of a shared aggregate through one
+//     row lock" idiom applyInventoryOperation uses via its own guarded
+//     UPDATE, adapted here because this aggregate is a re-summed total
+//     rather than a single incremental delta).
+//   - Cancelling a CONFIRMED Sale with any ACTIVE payment is blocked (see
+//     sale-core.ts's cancelSale) — payments must be voided first. This
+//     keeps inventory's cancellation-reversal lifecycle (tied to Sale.
+//     status) and payments' own reversal lifecycle (tied to SalePayment.
+//     status) fully independent, per this phase's explicit requirement
+//     that voiding a payment must never touch inventory.
+//   - PaymentMethod includes MERCADO_PAGO now so a future webhook
+//     integration never needs a breaking enum change (same precedent as
+//     CartStatus.CONVERTED above) — but no code this phase writes it, and
+//     the admin "Registrar pago" form deliberately never offers it as a
+//     manual selection (a manually-entered "Mercado Pago" payment would
+//     misrepresent an unverified transaction as if it came from the real
+//     provider integration). Provider-identification columns
+//     (provider/externalPaymentId) are deliberately NOT added yet — that
+//     is genuinely speculative schema surface until the actual webhook
+//     phase exists to populate/read them; add them in that phase's own
+//     migration instead of guessing their shape now.
+// =============================================================================
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  DEBIT_CARD
+  CREDIT_CARD
+  OTHER
+  // Reserved for a future Mercado Pago integration — see the model-level
+  // comment above. Not selectable in the admin "Registrar pago" form yet.
+  MERCADO_PAGO
+}
+
+// The Sale-level payment AGGREGATE state — see Sale.paymentStatus's own
+// comment. Distinct from PaymentRecordStatus below, which is the lifecycle
+// of one individual SalePayment row.
+enum SalePaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+}
+
+// One individual SalePayment row's own lifecycle — ACTIVE (counts toward
+// Sale.paidAmount) or VOIDED (excluded, but the row itself is never
+// deleted). See registerSalePayment/voidSalePayment in
+// modules/sales/payment-core.ts.
+enum PaymentRecordStatus {
+  ACTIVE
+  VOIDED
+}
+
+// One payment collected against a Sale. Always belongs to exactly one Sale
+// (never nullable) — a Sale may have many (split payments across methods;
+// see the model-level comment above). `amount` is always positive — there
+// is no "negative payment" concept; a correction is a void, never a
+// negative-amount row (see PaymentRecordStatus/voidSalePayment).
+model SalePayment {
+  id        String              @id @default(cuid())
+  saleId    String
+  method    PaymentMethod
+  // BigInt minor units — same convention as every other monetary column in
+  // this schema (see docs/adr/0001-monetary-strategy.md). Always > 0;
+  // enforced in modules/sales/payment-core.ts before this row is created,
+  // never relying on a DB CHECK constraint alone.
+  amount    BigInt
+  status    PaymentRecordStatus @default(ACTIVE)
+  // Free text — a transfer's operation number, a card terminal's
+  // authorization code, etc. Optional: irrelevant for CASH (see this
+  // phase's own UI requirements — the registration form never shows this
+  // field for CASH).
+  reference String?
+  notes     String?
+  // When the payment was actually collected — defaults to registration
+  // time, but editable at registration (e.g. entering a transfer received
+  // slightly earlier the same day) — never re-editable afterward, same
+  // immutability posture as the rest of this row.
+  paidAt    DateTime            @default(now())
+
+  // Real, client-generated duplicate-submission guard — same exact
+  // convention as InventoryOperation.idempotencyKey (nullable + unique, so
+  // any number of NULLs coexist under Postgres's any-NULL-is-distinct
+  // unique-index semantics); see modules/inventory/idempotency.ts and this
+  // model's own registerSalePayment for how it's generated/consumed.
+  idempotencyKey String? @unique
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // --- Void fields — set together, only once, only by voidSalePayment.
+  // The original amount/method/reference above are NEVER edited when a
+  // payment is voided — this is a status flag plus an audit trail, not a
+  // rewrite. Mandatory reason, per this phase's explicit requirement.
+  voidedAt   DateTime?
+  voidedById String?
+  voidReason String?
+
+  // Restrict: financial history must never silently vanish — same posture
+  // as every other Restrict relation into User/Customer/Sale in this
+  // schema. In practice a Sale is never hard-deleted anywhere in this
+  // codebase, so this is a defensive guarantee rather than a path that
+  // gets exercised.
+  sale      Sale  @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  createdBy User  @relation("SalePaymentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedBy  User? @relation("SalePaymentVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+
+  @@index([saleId, status])
+  @@map("sale_payment")
 }

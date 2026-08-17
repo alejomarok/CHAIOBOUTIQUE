@@ -4,6 +4,7 @@ import * as React from "react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
+import { usePortalContainer } from "@/components/layout/scoped-portal-root";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
 
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
@@ -28,8 +29,14 @@ function DropdownMenuContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  // Same reasoning as ui/sheet.tsx's SheetPortal — portals into the
+  // enclosing `.storefront`/`.admin` scope's own DOM subtree when
+  // rendered inside one, so its theme tokens (not document.body's
+  // unscoped :root) apply. UserMenu's dropdown is the concrete case this
+  // matters for once the admin panel gets its own scope.
+  const scopedContainer = usePortalContainer();
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={scopedContainer ?? undefined}>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}

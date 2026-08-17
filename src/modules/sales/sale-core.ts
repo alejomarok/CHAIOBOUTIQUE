@@ -1,4 +1,4 @@
-import type { Prisma, Sale, SaleStatus } from "@/generated/prisma/client";
+import type { Prisma, Sale, SalePaymentStatus, SaleStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db-core";
 import { recordAuditLog } from "@/modules/audit/index-core";
 import { getCustomerDisplayName } from "@/modules/customers/normalize";
@@ -95,6 +95,21 @@ export class CancellationReasonRequiredError extends Error {
   constructor() {
     super("El motivo de cancelación es obligatorio.");
     this.name = "CancellationReasonRequiredError";
+  }
+}
+
+// Sales Payments foundation — Sale cancellation policy (option A: block
+// rather than auto-reverse). A CONFIRMED sale with any ACTIVE payment
+// cannot be cancelled directly: cancelling would restore inventory while
+// real, collected money still shows as applied to a now-cancelled sale, an
+// inconsistent state this phase deliberately never allows to exist even
+// momentarily. The safer, simpler fix is required first: void every active
+// payment (see modules/sales/payment-core.ts's voidSalePayment, which never
+// touches inventory) and only then cancel the sale.
+export class SaleHasActivePaymentsError extends Error {
+  constructor() {
+    super("Esta venta tiene pagos registrados. Anulá los pagos antes de cancelar la venta.");
+    this.name = "SaleHasActivePaymentsError";
   }
 }
 
@@ -549,6 +564,9 @@ export async function cancelSale(id: string, reason: string, actorId: string): P
     if (existing.status === "CANCELLED") throw new SaleAlreadyCancelledError();
 
     if (existing.status === "CONFIRMED") {
+      const activePayments = await tx.salePayment.count({ where: { saleId: id, status: "ACTIVE" } });
+      if (activePayments > 0) throw new SaleHasActivePaymentsError();
+
       const items = await tx.saleItem.findMany({ where: { saleId: id } });
       try {
         await applyInventoryOperation(
@@ -610,6 +628,15 @@ export async function getSaleById(id: string) {
       createdBy: { select: { id: true, name: true } },
       cancelledBy: { select: { id: true, name: true } },
       items: { orderBy: { createdAt: "asc" } },
+      // Newest first — matches the "Pagos" history requirement (most
+      // recent activity at the top).
+      payments: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          createdBy: { select: { id: true, name: true } },
+          voidedBy: { select: { id: true, name: true } },
+        },
+      },
     },
   });
 }
@@ -617,6 +644,11 @@ export async function getSaleById(id: string) {
 export interface ListSalesInput {
   search?: string;
   status?: SaleStatus;
+  // Filters on the server-recomputed, persisted Sale.paymentStatus column
+  // (see the Sale model's own schema comment) — never a live aggregate
+  // computed per request, so this stays a single indexed equality filter
+  // regardless of result-set size.
+  paymentStatus?: SalePaymentStatus;
   take?: number;
   skip?: number;
 }
@@ -631,6 +663,7 @@ export async function listSales(input: ListSalesInput = {}): Promise<{ sales: Sa
 
   const where: Prisma.SaleWhereInput = {
     ...(input.status ? { status: input.status } : {}),
+    ...(input.paymentStatus ? { paymentStatus: input.paymentStatus } : {}),
     ...(searchTerm
       ? {
           OR: [
