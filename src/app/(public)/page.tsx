@@ -5,7 +5,7 @@ import { Hero } from "@/components/home/hero";
 
 export default function HomePage() {
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col overflow-hidden bg-[#fffdfb]">
       <Hero />
       <CategoryTiles />
       <FeaturedProducts />

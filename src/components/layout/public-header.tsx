@@ -11,20 +11,8 @@ import { listStorefrontNavCategories } from "@/modules/categories/service";
 
 const STATIC_LINKS_BEFORE: NavLinkItem[] = [{ href: "/", label: "Inicio" }];
 const STATIC_LINKS_AFTER: NavLinkItem[] = [{ href: "/catalog?sort=newest", label: "Novedades" }];
-const MAX_CATEGORY_LINKS = 5;
+const MAX_CATEGORY_LINKS = 4;
 
-// Category links come from listStorefrontNavCategories — categories an
-// admin has explicitly opted into the public nav (Category.
-// showInStorefrontNav), never a raw dump of every active category. A
-// category left at its default (not opted in) — internal, QA, an import
-// staging run, anything not deliberately curated — can never appear here,
-// regardless of how many real products it has. See that function's doc
-// comment and prisma/schema.prisma's field comment for the full rule.
-// "Ofertas" is deliberately omitted: there is no working "on sale"
-// filter/route yet, and a nav item with nowhere real to go is exactly the
-// "dead link" this phase asks to avoid. Sales/POS/Inventory/Customers are
-// never candidates here at all — those are administrative concepts with
-// no public route; this function only ever reads Category rows.
 async function getNavLinks(): Promise<NavLinkItem[]> {
   const categories = await listStorefrontNavCategories();
   const topLevel = categories
@@ -38,54 +26,55 @@ export async function PublicHeader() {
   const navLinks = await getNavLinks();
 
   return (
-    <header className="border-border bg-background/95 supports-backdrop-filter:bg-background/80 sticky top-0 z-40 border-b backdrop-blur">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        {/* Mobile row (< lg): hamburger — centered compact logo — cart.
-            A deliberately distinct layout from desktop, not a squashed
-            version of it — see requirement #4. */}
-        <div className="grid h-16 grid-cols-[auto_1fr_auto] items-center lg:hidden">
-          <div className="justify-self-start">
-            <MobileNav navLinks={navLinks} authSlot={<AuthActions />} dashboardSlot={<DashboardLink />} />
-          </div>
-          <div className="justify-self-center">
-            <Logo compact />
-          </div>
-          <div className="justify-self-end">
-            <CartIconLink />
-          </div>
-        </div>
-
-        {/* Desktop row (>= lg): logo — centered primary nav — search/cart/
-            account. A 3-column grid (not flex-1 centering) so the nav is
-            genuinely centered in the header regardless of how wide the
-            logo or the right-hand actions are. */}
-        <div className="hidden h-18 grid-cols-[auto_1fr_auto] items-center gap-6 lg:grid">
-          <div className="justify-self-start">
-            <Logo />
-          </div>
-          <div className="justify-self-center">
-            <DesktopNavLinks navLinks={navLinks} />
-          </div>
-          <div className="flex items-center gap-2 justify-self-end">
-            <form action="/catalog" method="GET" className="relative flex items-center">
-              <Search
-                className="text-muted-foreground pointer-events-none absolute left-2.5 size-4"
-                aria-hidden="true"
-              />
-              <Input
-                name="q"
-                type="search"
-                placeholder="Buscar…"
-                aria-label="Buscar productos"
-                className="bg-blush/60 h-8 w-36 border-transparent pl-8 focus-visible:w-52"
-              />
-            </form>
-            <CartIconLink />
-            <DashboardLink />
-            <AuthActions />
-          </div>
-        </div>
+    <>
+      <div className="bg-[#2f2a27] px-4 py-2 text-center text-[10px] font-medium uppercase tracking-[0.16em] text-white/90 sm:text-[11px]">
+        Moda femenina · Comprá online · Atención personalizada
       </div>
-    </header>
+
+      <header className="sticky top-0 z-40 border-b border-[#eadfd8] bg-[#fffdfb]/92 backdrop-blur-xl">
+        <div className="mx-auto max-w-[1380px] px-4 sm:px-6 lg:px-10">
+          <div className="grid h-16 grid-cols-[auto_1fr_auto] items-center lg:hidden">
+            <div className="justify-self-start">
+              <MobileNav navLinks={navLinks} authSlot={<AuthActions />} dashboardSlot={<DashboardLink />} />
+            </div>
+            <div className="justify-self-center">
+              <Logo compact />
+            </div>
+            <div className="justify-self-end">
+              <CartIconLink />
+            </div>
+          </div>
+
+          <div className="hidden h-[76px] grid-cols-[auto_1fr_auto] items-center gap-7 lg:grid">
+            <div className="justify-self-start">
+              <Logo />
+            </div>
+
+            <div className="justify-self-center">
+              <DesktopNavLinks navLinks={navLinks} />
+            </div>
+
+            <div className="flex items-center gap-1.5 justify-self-end">
+              <form action="/catalog" method="GET" className="relative flex items-center">
+                <Search
+                  className="pointer-events-none absolute left-3 size-4 text-[#8c817b]"
+                  aria-hidden="true"
+                />
+                <Input
+                  name="q"
+                  type="search"
+                  placeholder="Buscar"
+                  aria-label="Buscar productos"
+                  className="h-9 w-36 rounded-full border-[#eadfd8] bg-[#fff8f4] pl-9 text-sm transition-[width,background-color] focus-visible:w-52 focus-visible:bg-white"
+                />
+              </form>
+              <CartIconLink />
+              <DashboardLink />
+              <AuthActions />
+            </div>
+          </div>
+        </div>
+      </header>
+    </>
   );
 }
