@@ -110,27 +110,129 @@ When a real legacy system's export format is known, add its column mapping as a 
 ahead of `modules/imports/row-schemas.ts`'s generic shape, rather than changing the generic
 pipeline itself.
 
-## Payments — Mercado Pago (documented only, not implemented)
+## Payments — Mercado Pago Checkout Pro (implemented, fake-provider tested)
 
-**Status: not built.** No `payments` module exists yet — it's created alongside the
-sales/checkout phase (see [ROADMAP.md](./ROADMAP.md)). When it is, it must implement a provider
-interface along these lines:
+**Status: implemented.** `src/modules/payments/mercado-pago/` behind a provider interface
+(`MercadoPagoClient` in `types.ts`) exactly like Storage above — business logic never touches the
+`mercadopago` SDK directly:
 
 ```ts
-interface PaymentProvider {
-  createPreference(input: CreatePreferenceInput): Promise<PaymentPreference>;
-  handleWebhook(request: Request): Promise<WebhookResult>; // idempotent
-  getPaymentStatus(paymentId: string): Promise<PaymentStatus>; // server-verified, never trust the browser
-  refund(paymentId: string, amountMinorUnits?: number): Promise<RefundResult>; // partial refund optional
+interface MercadoPagoClient {
+  createPreference(input: CreateProviderPreferenceInput): Promise<ProviderPreference>;
+  getPayment(providerPaymentId: string): Promise<ProviderPayment | null>;
 }
 ```
 
-Non-negotiable rules for that future implementation: payment confirmation is always re-verified
+`RealMercadoPagoClient` (`client-core.ts`) wraps the real `mercadopago` npm SDK.
+`FakeMercadoPagoClient` (`fake-client-core.ts`) is a deterministic, in-memory, no-network
+implementation — the ONLY provider automated tests (`npm run test`/`test:integration`/`test:e2e`)
+ever exercise; `getMercadoPagoClient()` selects it automatically whenever `E2E_TEST_MODE=true`
+(set only by `playwright.config.ts`'s e2e webServer), regardless of whether real credentials
+happen to be configured. **A real Mercado Pago TEST Checkout Pro payment has never been validated
+against this codebase** as of this phase — see this phase's own final report for exactly what
+was and wasn't verified, and re-run that acceptance whenever real TEST credentials become
+available.
+
+### Environment variables
+
+Exactly four, all read via `src/lib/env-core.ts` and resolved together by
+`modules/payments/mercado-pago/config-core.ts`'s `getMercadoPagoConfig()` (all-or-nothing: a
+partial config — e.g. an access token with no webhook secret — is treated as fully unconfigured,
+never partially trusted):
+
+- `MERCADO_PAGO_ACCESS_TOKEN` — server-only, never `NEXT_PUBLIC_`, never logged.
+- `MERCADO_PAGO_WEBHOOK_SECRET` — server-only, used only to verify inbound webhook signatures.
+- `MERCADO_PAGO_ENVIRONMENT` — exactly `"TEST"` or `"PRODUCTION"`, required alongside the token.
+  Never sniffed from the token's own shape (Mercado Pago doesn't guarantee a stable prefix
+  convention) — this is what selects `sandbox_init_point` vs. `init_point` on preference creation,
+  and what the admin readiness card's environment label reflects.
+- `MERCADO_PAGO_PUBLIC_BASE_URL` — optional, falls back to `NEXT_PUBLIC_APP_URL` when unset. See
+  "Public HTTPS development URL" below.
+
+All four are optional at the schema level (the app must boot and every unrelated feature must keep
+working with none of them set) — `isMercadoPagoConfigured()` gates the public "Pagar con Mercado
+Pago" button and the webhook route's own 404, and `getMercadoPagoReadiness()` powers the
+Configuración → Integraciones → Mercado Pago admin card (booleans/labels only, **never** an actual
+credential value, in the UI or in any log line).
+
+### Public HTTPS development URL
+
+Mercado Pago's servers (both preference `back_urls` redirects and the `notification_url` webhook)
+must be able to reach this app over the public internet — `http://localhost:3000` is not
+reachable from Mercado Pago's side. `MERCADO_PAGO_PUBLIC_BASE_URL` exists exactly for this: point
+it at an HTTPS tunnel (ngrok, Cloudflare Tunnel, or equivalent) while manually testing a real
+sandbox payment, and leave it unset otherwise. No specific tunnel URL is hard-coded anywhere in
+this codebase — you supply your own each time you tunnel, in `.env`, never committed. The browser
+itself keeps browsing `http://localhost:3000` as normal; only the URLs *given to Mercado Pago*
+(back_urls, notification_url — both built in `preference-core.ts`'s `createMercadoPagoPreference`
+from `config.publicBaseUrl`) need to be the public HTTPS one.
+
+### Webhook
+
+Exact route: **`POST /api/webhooks/mercado-pago`** (`src/app/api/webhooks/mercado-pago/route.ts`).
+Register this exact path, on your current public HTTPS base URL, as the notification URL in the
+Mercado Pago TEST application's own webhook configuration — e.g.
+`https://<your-tunnel-domain>/api/webhooks/mercado-pago`. `GET` is rejected (405); only `POST` is
+accepted. The route itself already constructs and sends this same URL on every preference it
+creates (`notificationUrl` in `createMercadoPagoPreference`), so manually registering it in the
+Mercado Pago dashboard is only needed for notification types Checkout Pro doesn't attach
+automatically per-preference — check your Mercado Pago application's own webhook settings if
+notifications aren't arriving.
+
+Never trusts the notification body — only the signature-covered query string (`data.id`, `type`)
+selects what to look up, and the actual payment state is always re-fetched server-to-server
+(`reconcileMercadoPagoPayment` in `reconcile-core.ts`) before anything is written. Fails closed at
+every step: 404 if Mercado Pago isn't configured at all, 401 on an invalid/missing/malformed
+signature (verified via the SDK's own `WebhookSignatureValidator`, never weakened for local
+development), 400 on a structurally incomplete notification, 500 (triggering Mercado Pago's own
+retry) on a transient reconciliation failure — never a silent 200 on a real failure.
+
+### Reservation expiration scheduler
+
+`expireStaleOrdersAndReservations()` (`modules/orders/order-core.ts`) already runs opportunistically
+(on checkout submission, the admin Orders list, and preference creation) but nothing schedules it
+on a fixed interval yet. `POST /api/internal/expire-stale-orders`
+(`src/app/api/internal/expire-stale-orders/route.ts`) is the stable target a real scheduler should
+call:
+
+- **Recommended frequency**: every 5 minutes (comfortably shorter than
+  `RESERVATION_WINDOW_MINUTES` — currently 20 — so an abandoned reservation is never held much
+  longer than promised; a 5-minute cadence also tolerates one missed/failed run without materially
+  extending that window).
+- **Endpoint**: `POST /api/internal/expire-stale-orders` on this app's own deployed base URL.
+- **Authentication**: `Authorization: Bearer <INTERNAL_TASK_SECRET>` — a constant-time comparison
+  server-side (`timingSafeEqual`); the endpoint refuses every request (401) when
+  `INTERNAL_TASK_SECRET` is unset, so there is no way to invoke it without deliberately
+  configuring the secret first.
+- **Required environment variable**: `INTERNAL_TASK_SECRET` (generate with e.g.
+  `openssl rand -base64 32`). Never `NEXT_PUBLIC_`, never logged, never displayed anywhere in the
+  admin UI — the Configuración → Integraciones → Reservas card only shows whether it's *set*
+  (`✓ Tarea automática: Configurada` / `✕ Pendiente`), never the value.
+
+**No specific deployment platform is configured in this repository** (no `vercel.json`,
+`Dockerfile`, or other IaC/deploy config is checked in as of this phase) — do not invent one.
+Once the actual deployment target is known, prefer its native scheduler over a third-party one:
+
+- **Vercel**: a `vercel.json` `crons` entry calling the endpoint every 5 minutes (Vercel Cron
+  sends a `GET` by default — either configure it to `POST`, or add a thin `GET` handler to this
+  one route that internally calls the same logic, gated by the same secret via Vercel's own
+  `Authorization: Bearer $CRON_SECRET` convention).
+- **A container/VM deployment**: a system cron entry (or a scheduled task in whatever process
+  manager runs the app) executing a `curl -X POST -H "Authorization: Bearer $INTERNAL_TASK_SECRET"
+  https://<host>/api/internal/expire-stale-orders`.
+- **Platform-agnostic fallback**: any external scheduled-HTTP-call service (e.g. a hosted cron
+  service) configured with the same method/header/URL — the endpoint itself doesn't care who
+  calls it, only that the secret matches.
+
+Non-negotiable rules, unchanged from before this phase: payment confirmation is always re-verified
 server-side against Mercado Pago's API, never trusted from a browser redirect or client-side
-status; webhook processing is idempotent (a webhook delivered twice must not double-apply);
-Mercado Pago fees are recorded as their own line item, not netted silently into revenue; no card
-data is ever stored. Internal payment methods (bank transfer, cash, store pickup, POS split
-payments) are modeled independently of this interface, as plain payment records.
+status (see `order/[token]/payment/return/page.tsx`'s own "hint is never proof of payment"
+posture); webhook processing is idempotent (`OrderPaymentAttempt.providerPaymentId`'s own
+`@unique` plus the `Order` row lock inside `finalizePaidOrder` — a webhook delivered twice must
+not double-apply); Mercado Pago fees are not currently modeled as a separate line item (unchanged
+scope); no card data is ever stored (Checkout Pro is a redirect flow — this app never collects
+card details itself). Internal payment methods (bank transfer, cash, store pickup, POS split
+payments) remain modeled independently, as plain `SalePayment` records.
 
 ## Shipping — Andreani (documented only, not implemented)
 

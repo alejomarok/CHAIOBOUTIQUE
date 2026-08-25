@@ -14,6 +14,7 @@ import {
   updateProduct,
 } from "@/modules/products/service";
 import { getVisibilityBlockers, type VisibilityBlocker } from "@/modules/products/visibility";
+import type { FiscalTaxCategory } from "@/generated/prisma/client";
 
 const moneyField = z
   .string()
@@ -59,6 +60,9 @@ const productFieldsSchema = z.object({
   compareAtPriceAmount: moneyField,
   referenceCostAmount: moneyField,
   minimumStockThreshold: z.number().int().nonnegative().optional(),
+  // Phase — ARCA Fiscal Readiness correction pass. "" = "use the store
+  // default" (see StoreConfiguration.defaultTaxCategory) — never guessed.
+  taxCategory: z.enum(["IVA_21", "IVA_10_5", "IVA_27", "IVA_5", "IVA_2_5", "IVA_0", "EXENTO", ""]).optional(),
 });
 
 export async function createProductAction(input: z.input<typeof productFieldsSchema>) {
@@ -85,6 +89,7 @@ export async function createProductAction(input: z.input<typeof productFieldsSch
       compareAtPriceAmount: data.compareAtPriceAmount,
       referenceCostAmount: canSetCost ? data.referenceCostAmount : null,
       minimumStockThreshold: data.minimumStockThreshold ?? null,
+      taxCategory: (data.taxCategory || null) as FiscalTaxCategory | null,
     },
     actor.id,
   );
@@ -114,6 +119,7 @@ export async function updateProductAction(id: string, input: z.input<typeof prod
       compareAtPriceAmount: data.compareAtPriceAmount,
       ...(canSetCost ? { referenceCostAmount: data.referenceCostAmount } : {}),
       minimumStockThreshold: data.minimumStockThreshold ?? null,
+      taxCategory: (data.taxCategory || null) as FiscalTaxCategory | null,
     },
     actor.id,
   );

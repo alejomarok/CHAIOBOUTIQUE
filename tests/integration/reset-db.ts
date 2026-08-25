@@ -26,7 +26,9 @@ import {
   seedPermissions,
   seedRolesAndAssignments,
   seedStoreConfiguration,
+  seedSystemAccount,
 } from "@/modules/roles/seed-core";
+import { seedStoreBranches } from "@/modules/store-branches/seed-core";
 import { seedDefaultWarehouse } from "@/modules/warehouses/seed-core";
 
 const EXPECTED_TEST_HOST = "localhost";
@@ -46,6 +48,7 @@ const ALL_APPLICATION_TABLES = [
   "user_role",
   "role_permission",
   "store_configuration",
+  "store_branch",
   "audit_log",
   "category",
   "brand",
@@ -163,8 +166,16 @@ export async function resetTestDatabase(): Promise<void> {
   // state that left stock permanently invisible with zero default warehouse
   // configured).
   await seedDefaultWarehouse();
+  // Same reasoning, and same "no incoming FK, needs its own explicit
+  // truncate + reseed" posture as warehouse above — see this table's own
+  // @@map comment in schema.prisma.
+  await seedStoreBranches();
   // Same reasoning — every integration/e2e test that exercises Sales/POS
   // "Consumidor Final" defaults, or that just expects the customers admin
   // area to reflect a real fresh install, needs this to already exist.
   await seedConsumidorFinal();
+  // Same reasoning — every test that exercises finalizePaidOrder (an
+  // approved online payment) needs the seeded system account to already
+  // exist as the actorId for the Sale/SalePayment it creates.
+  await seedSystemAccount();
 }

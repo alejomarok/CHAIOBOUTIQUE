@@ -3,8 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { displayToMinorUnits, InvalidMoneyInputError, serializeMoney } from "@/lib/money";
+import { displayToMinorUnits, InvalidMoneyInputError, minorUnitsToDisplay, serializeMoney } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
+import { issueElectronicInvoice, reconcileArcaFiscalDocument } from "@/modules/fiscal-documents/arca";
+import type { FiscalDocument } from "@/generated/prisma/client";
+import {
+  createArcaInvoicingIntent,
+  FiscalDocumentAmountMismatchError,
+  registerExternalFiscalDocument,
+  registerManualFiscalDocument,
+  voidFiscalDocument,
+} from "@/modules/fiscal-documents/fiscal-document";
 import { MANUAL_PAYMENT_METHODS, registerSalePayment, voidSalePayment } from "@/modules/sales/payment";
 import {
   cancelSale,
@@ -89,6 +98,7 @@ function toFriendlyMessage(error: unknown): string {
       "InactiveWarehouseError",
       "CancellationReasonRequiredError",
       "SaleHasActivePaymentsError",
+      "SaleHasFiscalDocumentError",
       "SalePaymentNotFoundError",
       "SaleNotConfirmedError",
       "SaleCancelledCannotAcceptPaymentsError",
@@ -316,4 +326,265 @@ export async function voidSalePaymentAction(input: z.infer<typeof voidPaymentSch
 
   revalidatePath("/admin/sales");
   revalidatePath(`/admin/sales/${payment.saleId}`);
+}
+
+// =============================================================================
+// Fiscal Invoicing Foundation
+// =============================================================================
+
+// FiscalDocumentAmountMismatchError's own .message is ALREADY the final,
+// specific Spanish text (see modules/fiscal-documents/fiscal-document-core.ts)
+// — passed through verbatim, same posture as InsufficientSaleStockError
+// above.
+function toFiscalFriendlyMessage(error: unknown): string {
+  if (error instanceof FiscalDocumentAmountMismatchError) return error.message;
+  if (error instanceof Error) {
+    const knownErrors = [
+      "SaleNotFoundError",
+      "SaleNotInvoiceableError",
+      "SaleAlreadyHasActiveFiscalDocumentError",
+      "DuplicateFiscalDocumentSubmissionError",
+      "DuplicateFiscalDocumentIdentifierError",
+      "FiscalDocumentNotFoundError",
+      "FiscalDocumentAlreadyVoidedError",
+      "VoidReasonRequiredError",
+      "RequiredFieldMissingError",
+    ];
+    if (knownErrors.includes(error.name)) return error.message;
+  }
+  return "No pudimos registrar la facturación. Intentá de nuevo.";
+}
+
+const registerManualInvoiceSchema = z.object({
+  saleId: z.string().min(1),
+  documentType: z.string().min(1, "Ingresá el tipo de comprobante."),
+  pointOfSale: z.string().min(1, "Ingresá el punto de venta."),
+  documentNumber: z.string().min(1, "Ingresá el número de comprobante."),
+  // "YYYY-MM-DD" from an <input type="date">, interpreted in local time —
+  // same convention as registerPaymentSchema's own paidAt above.
+  issueDate: z.string().min(1, "Ingresá la fecha."),
+  totalAmount: requiredMoneyField,
+  notes: z.string().optional(),
+  // Client-generated at dialog-open time, resubmitted unchanged on retry —
+  // see modules/fiscal-documents/fiscal-document-core.ts's own "repeated
+  // form submissions must not create duplicate fiscal documents"
+  // requirement.
+  idempotencyKey: z.string().min(1),
+});
+
+export async function registerManualInvoiceAction(
+  input: z.input<typeof registerManualInvoiceSchema>,
+) {
+  const actor = await requirePermission("invoices.issue");
+  const data = registerManualInvoiceSchema.parse(input);
+
+  try {
+    await registerManualFiscalDocument(
+      {
+        saleId: data.saleId,
+        documentType: data.documentType,
+        pointOfSale: data.pointOfSale,
+        documentNumber: data.documentNumber,
+        issueDate: new Date(`${data.issueDate}T00:00:00`),
+        totalAmount: data.totalAmount,
+        notes: data.notes || null,
+        idempotencyKey: data.idempotencyKey,
+      },
+      actor.id,
+    );
+  } catch (error) {
+    throw new Error(toFiscalFriendlyMessage(error));
+  }
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${data.saleId}`);
+}
+
+const registerExternalInvoiceSchema = z.object({
+  saleId: z.string().min(1),
+  documentType: z.string().min(1, "Ingresá el tipo de comprobante."),
+  pointOfSale: z.string().optional(),
+  documentNumber: z.string().min(1, "Ingresá el número de comprobante."),
+  issueDate: z.string().min(1, "Ingresá la fecha."),
+  totalAmount: requiredMoneyField,
+  sourceSystem: z.string().min(1, "Ingresá el sistema de origen."),
+  externalReference: z.string().optional(),
+  notes: z.string().optional(),
+  idempotencyKey: z.string().min(1),
+});
+
+export async function registerExternalInvoiceAction(
+  input: z.input<typeof registerExternalInvoiceSchema>,
+) {
+  const actor = await requirePermission("invoices.issue");
+  const data = registerExternalInvoiceSchema.parse(input);
+
+  try {
+    await registerExternalFiscalDocument(
+      {
+        saleId: data.saleId,
+        documentType: data.documentType,
+        pointOfSale: data.pointOfSale || null,
+        documentNumber: data.documentNumber,
+        issueDate: new Date(`${data.issueDate}T00:00:00`),
+        totalAmount: data.totalAmount,
+        sourceSystem: data.sourceSystem,
+        externalReference: data.externalReference || null,
+        notes: data.notes || null,
+        idempotencyKey: data.idempotencyKey,
+      },
+      actor.id,
+    );
+  } catch (error) {
+    throw new Error(toFiscalFriendlyMessage(error));
+  }
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${data.saleId}`);
+}
+
+const createArcaIntentSchema = z.object({
+  saleId: z.string().min(1),
+  notes: z.string().optional(),
+  idempotencyKey: z.string().min(1),
+});
+
+// Creates only a PENDING intent — never contacts ARCA. See
+// modules/fiscal-documents/fiscal-document-core.ts's createArcaInvoicingIntent
+// and modules/fiscal-documents/arca/issue-electronic-invoice-core.ts's
+// documented future boundary.
+export async function createArcaInvoicingIntentAction(
+  input: z.input<typeof createArcaIntentSchema>,
+) {
+  const actor = await requirePermission("invoices.issue");
+  const data = createArcaIntentSchema.parse(input);
+
+  try {
+    await createArcaInvoicingIntent(
+      { saleId: data.saleId, notes: data.notes || null, idempotencyKey: data.idempotencyKey },
+      actor.id,
+    );
+  } catch (error) {
+    throw new Error(toFiscalFriendlyMessage(error));
+  }
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${data.saleId}`);
+}
+
+const voidFiscalDocumentSchema = z.object({
+  id: z.string().min(1),
+  reason: z.string().min(1, "El motivo de anulación es obligatorio."),
+});
+
+// Administrative correction only — never a real ARCA electronic-invoice
+// cancellation or a credit/debit note (neither exists yet). Requires
+// invoices.cancel, a stricter/separate permission from invoices.issue —
+// see this phase's role matrix in the final report.
+export async function voidFiscalDocumentAction(input: z.infer<typeof voidFiscalDocumentSchema>) {
+  const actor = await requirePermission("invoices.cancel");
+  const data = voidFiscalDocumentSchema.parse(input);
+
+  const document = await (async () => {
+    try {
+      return await voidFiscalDocument(data.id, data.reason, actor.id);
+    } catch (error) {
+      throw new Error(toFiscalFriendlyMessage(error));
+    }
+  })();
+
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${document.saleId}`);
+}
+
+// =============================================================================
+// Phase — ARCA Homologation: Real WSAA + WSFEv1 Integration.
+// =============================================================================
+
+function toArcaIssuanceFriendlyMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const knownErrors = [
+      "ArcaIssuanceNotReadyError",
+      "ArcaIssuanceUncertainError",
+      "NoPendingArcaIntentError",
+      "FiscalDocumentNotReconcilableError",
+      "FiscalDocumentNotFoundError",
+      "ArcaEnvironmentNotHomologationError",
+      "ArcaCertificateNotConfiguredError",
+      "ArcaCertificateUnreadableError",
+      "ArcaCertificateInvalidError",
+      "WsaaFaultError",
+      "WsfeFaultError",
+      "WsfeNetworkError",
+      "SaleNotFoundError",
+    ];
+    if (knownErrors.includes(error.name)) return error.message;
+  }
+  return "No pudimos emitir el comprobante electrónico. Intentá de nuevo.";
+}
+
+// Never crosses the Server Action boundary with a raw bigint — see
+// lib/money.ts's own documented rule. This is the "post-success result
+// display" the confirmation dialog shows (Entorno/Tipo/Punto de venta/
+// Número/CAE/Vencimiento CAE/Fecha).
+export interface ArcaIssuanceResultDTO {
+  status: "PENDING" | "ISSUED" | "ERROR" | "VOIDED";
+  arcaEnvironment: "HOMOLOGATION" | "PRODUCTION" | null;
+  documentType: string | null;
+  pointOfSale: string | null;
+  documentNumber: string | null;
+  cae: string | null;
+  caeExpiresAt: string | null;
+  issueDate: string | null;
+  totalAmountDisplay: string | null;
+}
+
+function toArcaIssuanceResultDTO(document: FiscalDocument): ArcaIssuanceResultDTO {
+  return {
+    status: document.status,
+    arcaEnvironment: document.arcaEnvironment,
+    documentType: document.documentType,
+    pointOfSale: document.pointOfSale,
+    documentNumber: document.documentNumber,
+    cae: document.cae,
+    caeExpiresAt: document.caeExpiresAt ? document.caeExpiresAt.toISOString() : null,
+    issueDate: document.issueDate ? document.issueDate.toISOString() : null,
+    totalAmountDisplay:
+      document.status === "ISSUED" ? minorUnitsToDisplay(document.totalAmount, { currency: document.currency }) : null,
+  };
+}
+
+// Real WSAA + WSFEv1 issuance — see modules/fiscal-documents/arca/
+// issue-electronic-invoice-core.ts for the full flow. Requires
+// invoices.issue (the same permission that already gates registering any
+// other kind of fiscal document for a Sale).
+export async function issueElectronicInvoiceAction(saleId: string): Promise<ArcaIssuanceResultDTO> {
+  const actor = await requirePermission("invoices.issue");
+
+  let document: FiscalDocument;
+  try {
+    document = await issueElectronicInvoice(saleId, actor.id);
+  } catch (error) {
+    throw new Error(toArcaIssuanceFriendlyMessage(error));
+  }
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${saleId}`);
+  return toArcaIssuanceResultDTO(document);
+}
+
+// Retry-safety UI action (section 17) — "Verificar estado en ARCA", shown
+// only when a prior issuance attempt was left uncertain. Never re-requests
+// a CAE directly.
+export async function reconcileArcaFiscalDocumentAction(
+  fiscalDocumentId: string,
+  saleId: string,
+): Promise<ArcaIssuanceResultDTO> {
+  const actor = await requirePermission("invoices.issue");
+
+  let document: FiscalDocument;
+  try {
+    document = await reconcileArcaFiscalDocument(fiscalDocumentId, actor.id);
+  } catch (error) {
+    throw new Error(toArcaIssuanceFriendlyMessage(error));
+  }
+  revalidatePath("/admin/sales");
+  revalidatePath(`/admin/sales/${saleId}`);
+  return toArcaIssuanceResultDTO(document);
 }

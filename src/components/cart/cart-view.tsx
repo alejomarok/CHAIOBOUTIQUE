@@ -210,14 +210,18 @@ export function CartView({ initialCart }: { initialCart: CartDTO }) {
             Algunos artículos tienen problemas — revisalos arriba antes de continuar.
           </p>
         )}
-        {/* Not yet functional — checkout lands in a later phase. Shown
-            disabled so the next step is visible rather than hidden. */}
-        <Button type="button" disabled className="w-full">
-          Continuar a la compra (próximamente)
+        <Button asChild disabled={cart.hasIssues} className="w-full">
+          <Link href="/checkout">Continuar a la compra</Link>
         </Button>
-        <p className="text-muted-foreground text-xs">
-          El stock se confirma definitivamente al finalizar la compra.
-        </p>
+        {cart.hasIssues ? (
+          <p className="text-muted-foreground text-xs">
+            Revisá los artículos con problemas arriba antes de continuar.
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            El stock se reserva al confirmar el pedido, mientras completás el pago.
+          </p>
+        )}
         {confirmingClear ? (
           <div className="flex gap-2">
             <Button

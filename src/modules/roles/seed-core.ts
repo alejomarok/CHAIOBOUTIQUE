@@ -63,3 +63,64 @@ export async function seedStoreConfiguration(input: {
     create: { id: "main", ...input },
   });
 }
+
+// Phase — Mercado Pago Checkout Pro integration. Same idempotent-by-flag
+// pattern as modules/customers/seed-core.ts's seedConsumidorFinal — a guard
+// check (does a system account already exist?), never a name/email lookup,
+// so this never fights a later admin edit and is safe to run on every
+// `prisma db seed`. Deliberately created via a direct prisma.user.create,
+// never Better Auth's signUpEmail: this row must have no Account/password
+// at all, so it can never sign in — see User.isSystemAccount's own schema
+// comment.
+const SYSTEM_ACCOUNT_EMAIL = "sistema@chaioboutique.internal";
+
+export interface SystemAccountSeedSummary {
+  created: boolean;
+}
+
+export async function seedSystemAccount(): Promise<SystemAccountSeedSummary> {
+  const existing = await prisma.user.findFirst({ where: { isSystemAccount: true } });
+  if (existing) return { created: false };
+
+  await prisma.user.create({
+    data: {
+      id: crypto.randomUUID(),
+      name: "Sistema",
+      email: SYSTEM_ACCOUNT_EMAIL,
+      emailVerified: true,
+      isActive: true,
+      isSystemAccount: true,
+    },
+  });
+
+  return { created: true };
+}
+
+export function printSystemAccountSeedSummary(summary: SystemAccountSeedSummary): void {
+  console.log(
+    summary.created
+      ? "Cuenta del sistema creada: Sistema."
+      : "Cuenta del sistema: ya existe — no se creó ninguna nueva.",
+  );
+}
+
+// The runtime lookup every automated, no-human-present write uses (see
+// modules/orders/order-core.ts's finalizePaidOrder) — mirrors modules/
+// customers/customer-core.ts's getSystemDefaultCustomer exactly (a guard
+// check by flag, never a hardcoded id). Throws rather than returning null:
+// unlike a merely-missing optional feature, a finalizePaidOrder call with
+// no system account seeded is a genuine deployment-configuration error that
+// must never proceed silently (e.g. by falling back to some arbitrary real
+// staff account as the payment's attributed actor).
+export class SystemAccountNotSeededError extends Error {
+  constructor() {
+    super("La cuenta del sistema no está creada. Ejecutá el seed de la base de datos.");
+    this.name = "SystemAccountNotSeededError";
+  }
+}
+
+export async function getSystemAccountUserId(): Promise<string> {
+  const account = await prisma.user.findFirst({ where: { isSystemAccount: true }, select: { id: true } });
+  if (!account) throw new SystemAccountNotSeededError();
+  return account.id;
+}

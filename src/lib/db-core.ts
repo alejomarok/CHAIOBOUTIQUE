@@ -33,23 +33,57 @@ if (env.NODE_ENV !== "production") {
 // reachable (Supabase remote, postgres-dev, postgres-test), which one a
 // given `next dev`/`next start` process is actually talking to must never
 // be a guess — logged once at startup, host + database name only, never
-// credentials or the full connection string. `npm run dev` (Supabase),
-// `npm run dev:local` (with-dev-db.mjs forces DATABASE_URL to
-// DEV_DATABASE_URL), and the test runners (with-test-db.mjs) each produce a
-// visibly different line here.
+// credentials or the full connection string. `npm run dev`/`dev:local`
+// (with-dev-db.mjs forces DATABASE_URL to DEV_DATABASE_URL — the default,
+// safe command), `npm run dev:remote` (with-remote-db.mjs, deliberate and
+// explicitly gated — see that script), and the test runners
+// (with-test-db.mjs) each produce a visibly different line here.
+//
+// Made deliberately loud (a bordered, multi-line banner, not a single easy-
+// to-miss log line) after a real incident: a plain `npm run dev` used to
+// silently use whatever DATABASE_URL was raw in .env (Supabase by default),
+// and the admin dashboard failed with a confusing P2022 "column does not
+// exist" error (Supabase intentionally lags behind postgres-dev's applied
+// migrations — see DATABASE.md). `npm run dev` is now wrapped by
+// with-dev-db.mjs and can no longer reach this REMOTE SUPABASE branch at
+// all — seeing it now means either `npm run dev:remote` (deliberate) or a
+// production-adjacent command (`build`/`start`/a raw `prisma migrate ...`).
+// The two headline strings below ("DATABASE: LOCAL DEVELOPMENT" /
+// "DATABASE: REMOTE SUPABASE") are grep-able and meant to be impossible to
+// scroll past unnoticed.
 if (env.NODE_ENV !== "production" && isFreshProcess) {
   try {
     const parsed = new URL(env.DATABASE_URL);
     const databaseName = parsed.pathname.replace(/^\//, "").split("?")[0];
-    const kind =
-      parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
-        ? parsed.port === "56033"
-          ? "local development (postgres-dev)"
-          : parsed.port === "56032"
-            ? "local test (postgres-test)"
-            : "local Postgres (unrecognized port)"
-        : "remote (Supabase)";
-    console.log(`[db] Connected to: ${kind} — ${parsed.hostname}:${parsed.port || "5432"}/${databaseName}`);
+    const isLocalHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    const isRemote = !isLocalHost;
+    const kind = isLocalHost
+      ? parsed.port === "56033"
+        ? "local development (postgres-dev)"
+        : parsed.port === "56032"
+          ? "local test (postgres-test)"
+          : "local Postgres (unrecognized port)"
+      : "remote (Supabase)";
+    const headline = isRemote ? "DATABASE: REMOTE SUPABASE" : "DATABASE: LOCAL DEVELOPMENT";
+    const border = "=".repeat(Math.max(headline.length + 4, 48));
+    console.log(
+      [
+        "",
+        border,
+        `  ${headline}`,
+        `  ${kind} — ${parsed.hostname}:${parsed.port || "5432"}/${databaseName}`,
+        ...(isRemote
+          ? [
+              "  ⚠ This is the REAL Supabase database, not postgres-dev.",
+              "  ⚠ Expected only for `npm run dev:remote`, a production-adjacent",
+              "  ⚠ command (build/start), or a raw `prisma migrate ...` invocation —",
+              "  ⚠ never plain `npm run dev`, which always uses postgres-dev.",
+            ]
+          : []),
+        border,
+        "",
+      ].join("\n"),
+    );
   } catch {
     // Never let a logging convenience break startup over an unparseable URL
     // — env-core.ts already validated DATABASE_URL is a non-empty string.

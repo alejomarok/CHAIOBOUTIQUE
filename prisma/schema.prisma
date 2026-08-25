@@ -45,6 +45,21 @@ model User {
   disabledAt DateTime?
   deletedAt  DateTime?
 
+  // Phase — Mercado Pago Checkout Pro integration. Marks the single seeded
+  // "Sistema" User row used as the actorId for automated, no-human-present
+  // writes that a NOT NULL actorId column requires (Sale.createdById,
+  // SalePayment.createdById, InventoryOperation.actorId — see
+  // finalizePaidOrder in modules/orders/order-core.ts) — same "well-known
+  // seeded row for the no-real-actor case" precedent as
+  // Customer.isSystemDefault ("Consumidor Final"; see modules/customers/
+  // seed-core.ts). Has no Account row (no password/credential), so it can
+  // never sign in — application-level enforcement only (same documented-
+  // soft-enforcement posture as Role.isSystem/Customer.isSystemDefault
+  // elsewhere), reinforced by having no usable credential at all. Never
+  // assignable/editable through the admin Users UI, same protection
+  // posture as "Consumidor Final" being blocked from admin edits.
+  isSystemAccount Boolean @default(false)
+
   sessions  Session[]
   accounts  Account[]
   userRoles UserRole[]
@@ -91,6 +106,19 @@ model User {
   // cancelledSales above.
   createdSalePayments SalePayment[] @relation("SalePaymentCreatedBy")
   voidedSalePayments  SalePayment[] @relation("SalePaymentVoidedBy")
+
+  // Phase — Online Orders & Checkout foundation. `orders`: every Order
+  // placed while authenticated as this User (never set for a guest order —
+  // see Order.userId's own comment). `cancelledOrders`: admin actor, same
+  // separation posture as Sale's own createdSales/cancelledSales.
+  orders          Order[] @relation("OrderPlacedByUser")
+  cancelledOrders Order[] @relation("OrderCancelledBy")
+
+  // Phase — Fiscal Invoicing Foundation back-relations. Same createdBy/
+  // voidedBy actor-separation posture as SalePayment's own back-relations
+  // above.
+  createdFiscalDocuments FiscalDocument[] @relation("FiscalDocumentCreatedBy")
+  voidedFiscalDocuments  FiscalDocument[] @relation("FiscalDocumentVoidedBy")
 
   @@map("user")
 }
@@ -214,16 +242,213 @@ model RolePermission {
 // a second "store").
 // ---------------------------------------------------------------------------
 
+// The store's OWN VAT registration status — determines which ARCA invoice
+// type (Factura A/B/C) it is even allowed to issue (see
+// modules/fiscal-documents/arca/document-type-core.ts's
+// resolveFiscalDocumentType). Deliberately a SEPARATE enum from
+// RecipientVatCondition below, even though the categories overlap: "who is
+// the issuer" and "who is the recipient" are different roles in ARCA's own
+// model (a recipient may legitimately be Consumidor Final; an issuer
+// issuing invoices at all never is). Intentionally NOT a full mirror of
+// ARCA's 11-code CondicionIVAReceptorId table — only the categories
+// realistic for CHAIOBOUTIQUE as a small Argentine retail business are
+// modeled; see this phase's explicit "do not overfit internal enums to
+// temporary external labels" instruction. Never guessed — see
+// StoreConfiguration.issuerVatCondition's own comment.
+enum IssuerVatCondition {
+  RESPONSABLE_INSCRIPTO
+  MONOTRIBUTISTA
+  EXENTO
+}
+
+// The RECIPIENT's VAT condition for a given Sale — ARCA's own
+// CondicionIVAReceptorId concept (mandatory since RG 5616/2024). Modeled as
+// a controlled enum (never free text) specifically so
+// resolveFiscalDocumentType can be pure and never guess — see Customer.
+// vatCondition's own comment for why this is a NEW field alongside the
+// pre-existing free-text Customer.taxCondition, not a replacement of it.
+// Only the categories realistic for CHAIOBOUTIQUE's actual customer base
+// are modeled (same "do not overfit" posture as IssuerVatCondition above) —
+// the full ARCA table also includes categories like "Cliente del Exterior"
+// or "Monotributista Social", deliberately not modeled here; extensible
+// later without a breaking change (adding an enum value is additive).
+enum RecipientVatCondition {
+  RESPONSABLE_INSCRIPTO
+  MONOTRIBUTISTA
+  EXENTO
+  CONSUMIDOR_FINAL
+  IVA_NO_ALCANZADO
+}
+
+// ARCA exposes two fully separate endpoints/certificate chains for
+// homologation (testing) vs. production — see this phase's explicit "never
+// let a production certificate/endpoint be accidentally used by a local
+// automated test" requirement. Never inferred from a filename or any other
+// implicit signal; always an explicit choice.
+enum ArcaEnvironment {
+  HOMOLOGATION
+  PRODUCTION
+}
+
+// Phase — ARCA Fiscal Readiness correction pass. The catalog-level fiscal
+// tax category — what actually determines an item's VAT treatment, NEVER
+// hard-coded to a single "21% for everything" assumption (see this phase's
+// explicit correction: "do not treat Factura A/B as always meaning IVA
+// 21%"). Only the alícuotas WSFEv1's own FEParamGetTiposIva table exposes
+// AND that are plausible for CHAIOBOUTIQUE's actual catalog are modeled —
+// see modules/fiscal-documents/arca/arca-codes.ts's own ARCA_ALICUOTA_IVA_CODE
+// for the numeric-code mapping, kept deliberately isolated from this enum
+// (domain tax category -> ARCA code is a separate, one-directional mapping
+// step — see modules/fiscal-documents/arca/fiscal-tax-category-core.ts).
+// EXENTO is modeled as ONE combined "exempt/non-taxable" category rather
+// than two (Argentina's "exento" and "no gravado" are legally distinct, but
+// CHAIOBOUTIQUE's retail-clothing catalog has no documented current need to
+// distinguish them) — a deliberate "smallest maintainable" simplification,
+// extensible later without a breaking change (adding an enum value is
+// additive). Never guessed/defaulted for a specific Product — see
+// Product.taxCategory and StoreConfiguration.defaultTaxCategory below for
+// the two places a value actually gets chosen.
+enum FiscalTaxCategory {
+  IVA_21
+  IVA_10_5
+  IVA_27
+  IVA_5
+  IVA_2_5
+  IVA_0
+  EXENTO
+}
+
 model StoreConfiguration {
-  id        String   @id @default("main")
-  name      String
-  currency  String
-  locale    String
-  timezone  String
+  id                        String  @id @default("main")
+  name                      String
+  currency                  String
+  locale                    String
+  timezone                  String
+  // Phase — Online Orders & Checkout foundation. Nullable, not a
+  // zero-default: null means "not configured yet", in which case
+  // HOME_DELIVERY is simply not offered as a checkout delivery method (see
+  // modules/orders/order-core.ts's listAvailableDeliveryMethods) — never
+  // silently charged as $0, and never guessed at. Set this to offer home
+  // delivery at a real, flat, admin-configured price. See this phase's
+  // documented "prefer a proper configurable amount" shipping-cost policy.
+  homeDeliveryFlatFeeAmount BigInt?
+  // Free-text shown on checkout when PICKUP is selected — e.g. an address
+  // and/or hours. Null means "not configured yet": checkout shows a neutral
+  // "te contactaremos para coordinar el retiro" message instead of
+  // inventing an address (see this phase's explicit "do not invent
+  // addresses" requirement).
+  pickupInstructions        String?
+
+  // --- Public contact / social presence — Phase: Public Footer Redesign.
+  // Previously env-driven (STORE_INSTAGRAM_URL etc. in .env), which required
+  // an actual deploy/restart to change; moved here so a non-technical admin
+  // can update them live from /admin/settings, per this phase's explicit
+  // "prefer editable store configuration over hard-coded values"
+  // requirement. All nullable — absent means "not configured yet", and the
+  // public footer hides that element gracefully rather than ever rendering
+  // a fake value or a dead href="#" link. publicPhone/whatsappPhone are
+  // deliberately separate columns (a landline vs. a different WhatsApp-
+  // enabled mobile number are both real, independent possibilities for a
+  // small retail business) — never assumed to be the same number.
+  publicPhone   String?
+  whatsappPhone String?
+  publicEmail   String?
+  instagramUrl  String?
+  facebookUrl   String?
+  tiktokUrl     String?
+
+  // --- Fiscal settings preparation — Phase: Fiscal Invoicing Foundation.
+  // All nullable, all may stay blank in development — this phase never
+  // invents real business fiscal data, and checkout/storefront never
+  // depends on any of these. fiscalDefaultPointOfSale is the MANUAL/
+  // SISTEMA_EXTERNO registration forms' own pre-fill default only — kept
+  // deliberately separate from arcaPointOfSale below (see this phase's
+  // explicit "never implicitly reuse a manual point-of-sale number for
+  // electronic issuance" rule).
+  fiscalLegalName          String?
+  fiscalTaxId              String?
+  fiscalDefaultPointOfSale String?
+
+  // --- ARCA fiscal readiness — Phase: ARCA Fiscal Readiness + Tax Model.
+  // Still does NOT connect to ARCA (see modules/fiscal-documents/arca/
+  // issue-electronic-invoice-core.ts) — this is the issuer's own fiscal
+  // profile, the input a future WSFEV1 FECAESolicitar request would need.
+  // All nullable: readiness (see modules/fiscal-documents/arca/
+  // readiness-core.ts) requires every one of these to be explicitly set
+  // before considering ARCA "data ready" — never a guessed/defaulted
+  // value. Replaces the earlier free-text fiscalTaxCondition (added last
+  // phase specifically as unstructured placeholder preparation for THIS
+  // phase to give real structure — see this phase's "do not guess the
+  // store's tax condition" instruction, which is exactly why a controlled
+  // enum replaces free text here) — safe to replace outright (not
+  // deprecate-in-place, unlike Customer.taxCondition below) since this
+  // column only ever held placeholder/dev data, never real production
+  // fiscal identity.
+  issuerVatCondition      IssuerVatCondition?
+  // Domicilio fiscal/comercial — needed for a future printed invoice/PDF,
+  // NOT a WSFEV1 request field itself (ARCA resolves the issuer's
+  // registered address from the CUIT, not from the request payload).
+  fiscalAddress           String?
+  // Needed for a future printed invoice only (same posture as
+  // fiscalAddress above) — not a WSFEV1 request field.
+  fiscalActivityStartDate DateTime?
+  // Ingresos Brutos (IIBB) identifier — commonly printed on an Argentine
+  // invoice, not required by WSFEV1 itself. Blank unless CHAIOBOUTIQUE's
+  // real registration actually has one.
+  fiscalGrossIncomeId     String?
+  // The store's OWN electronic point of sale (PtoVta) for WSFEV1 —
+  // deliberately distinct from fiscalDefaultPointOfSale above. Null means
+  // "not configured" — see this phase's explicit "never invent a value"
+  // and "validate numeric range/format" rules (validated at the
+  // application layer, matching this schema's own no-CHECK-constraint
+  // convention for business-rule validation).
+  arcaPointOfSale         Int?
+  // Never inferred from a certificate filename or any other implicit
+  // signal — see this phase's explicit HOMOLOGATION/PRODUCTION separation
+  // requirement. Null means "not decided yet"; readiness treats an unset
+  // environment the same as any other missing required field.
+  arcaEnvironment         ArcaEnvironment?
+
+  // Phase — ARCA Fiscal Readiness correction pass. A convenient store-wide
+  // default tax category for the current catalog (e.g. clothing at IVA
+  // 21%) — see Product.taxCategory's own comment for the override
+  // relationship. Null means "no default configured yet": a SaleItem whose
+  // Product has no override AND this is unset gets NO tax-category
+  // snapshot at all (see SaleItem.taxCategory) — calculateFiscalAmounts
+  // then refuses to decompose IVA for that Sale rather than guessing.
+  // Editable only by an authorized administrator (settings.manage) — never
+  // presented as accounting/tax advice; see the admin settings form's own
+  // disclaimer copy.
+  defaultTaxCategory FiscalTaxCategory?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("store_configuration")
+}
+
+// One physical retail location — Phase: Public Footer Redesign. A small,
+// genuinely separate table (not more StoreConfiguration columns): unlike
+// the single-row store config, this is a real LIST (CHAIOBOUTIQUE
+// currently has two branches, and a third is plausible later without a
+// breaking schema change). Deliberately minimal — no hours/geo-coordinates/
+// per-branch inventory — see this phase's explicit "do not create an
+// over-engineered locations module" instruction. `code` exists purely for
+// stable, idempotent seeding (see modules/store-branches/seed-core.ts),
+// mirroring Warehouse.code's exact role; never shown to a customer.
+model StoreBranch {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  address      String
+  city         String
+  province     String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("store_branch")
 }
 
 // ---------------------------------------------------------------------------
@@ -406,10 +631,10 @@ enum ProductStatus {
 }
 
 model Product {
-  id                    String        @id @default(cuid())
-  internalCode          String?       @unique
+  id                    String             @id @default(cuid())
+  internalCode          String?            @unique
   name                  String
-  slug                  String        @unique
+  slug                  String             @unique
   shortDescription      String?
   description           String?
   // Nullable: legacy-migrated products may land before category mapping is
@@ -426,8 +651,8 @@ model Product {
   // while the product has a variant whose sizeOptionId belongs to a
   // different group (see ProductSizeGroupChangeBlockedError).
   sizeGroupId           String?
-  status                ProductStatus @default(DRAFT)
-  isFeatured            Boolean       @default(false)
+  status                ProductStatus      @default(DRAFT)
+  isFeatured            Boolean            @default(false)
   seoTitle              String?
   seoDescription        String?
   // BigInt minor units — see ADR-1. Null means "no price set yet" (blocks
@@ -436,13 +661,23 @@ model Product {
   compareAtPriceAmount  BigInt?
   referenceCostAmount   BigInt?
   minimumStockThreshold Int?
+  // Phase — ARCA Fiscal Readiness correction pass. Explicit per-product
+  // override of StoreConfiguration.defaultTaxCategory — null means "use
+  // the store default" (see that field's own comment), never "0%/exempt by
+  // omission". A future confirmed Sale snapshots whichever value actually
+  // resolved (this override if set, else the store default, else nothing)
+  // onto SaleItem.taxCategory at the moment the line is added — this
+  // column itself is never read again once a historical SaleItem exists;
+  // changing it here must never rewrite a past Sale's fiscal snapshot (see
+  // SaleItem.taxCategory's own comment).
+  taxCategory           FiscalTaxCategory?
   archivedAt            DateTime?
   legacySource          String?
   legacyId              String?
   createdById           String?
   updatedById           String?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
   category  Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   brand     Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
@@ -490,15 +725,19 @@ model ProductVariant {
   sizeOption SizeOption? @relation(fields: [sizeOptionId], references: [id], onDelete: Restrict)
   color      Color?      @relation(fields: [colorId], references: [id], onDelete: Restrict)
 
-  inventoryMovements InventoryMovement[]
-  inventoryBalances  InventoryBalance[]
-  images             ProductImage[]
-  cartItems          CartItem[]
+  inventoryMovements    InventoryMovement[]
+  inventoryBalances     InventoryBalance[]
+  images                ProductImage[]
+  cartItems             CartItem[]
   // Phase — Sales/POS foundation. See Sale/SaleItem below: a sale line item
   // references the variant for stock-integration readiness later, but never
   // trusts it for historical display — see SaleItem.productNameSnapshot/
   // skuSnapshot.
-  saleItems          SaleItem[]
+  saleItems             SaleItem[]
+  // Phase — Online Orders & Checkout foundation. Same snapshot posture as
+  // saleItems above — see OrderItem.productNameSnapshot/skuSnapshot.
+  orderItems            OrderItem[]
+  inventoryReservations InventoryReservation[]
 
   // Covers the fully-specified case (both sizeOptionId and colorId set).
   // The default/size-only/color-only cases (where a plain @@unique can't
@@ -574,21 +813,40 @@ model Warehouse {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  balances  InventoryBalance[]
-  movements InventoryMovement[]
+  balances     InventoryBalance[]
+  movements    InventoryMovement[]
   // Phase — Sales/POS foundation. Every Sale references exactly one
   // Warehouse (see Sale.warehouseId's own comment).
-  sales     Sale[]
+  sales        Sale[]
+  // Phase — Online Orders & Checkout foundation. Every Order/
+  // InventoryReservation references exactly one fulfillment Warehouse —
+  // same posture as sales above.
+  orders       Order[]
+  reservations InventoryReservation[]
 
   @@map("warehouse")
 }
 
 model InventoryBalance {
-  id          String   @id @default(cuid())
-  variantId   String
-  warehouseId String
-  quantity    Int      @default(0)
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  variantId        String
+  warehouseId      String
+  quantity         Int      @default(0)
+  // Phase — Online Orders & Checkout foundation. The SUM of every ACTIVE
+  // InventoryReservation's quantity for this (variant, warehouse) pair —
+  // maintained the exact same way `quantity` itself is: a dedicated atomic,
+  // guarded UPDATE (never SELECT-then-UPDATE), see
+  // modules/inventory/reservation-core.ts's reserveStock/releaseReservation.
+  // Deliberately a SEPARATE column from `quantity`, never subtracted from
+  // it directly — `quantity` always reflects real, physical on-hand stock
+  // (only ever changed by a real InventoryMovement); `reservedQuantity` is
+  // a commitment layered on top. "Available to sell" = quantity -
+  // reservedQuantity — see getAvailableToSell in
+  // modules/inventory/service-core.ts, the single formula every
+  // availability-sensitive read path (cart, public product page, checkout,
+  // POS Sale confirmation) uses.
+  reservedQuantity Int      @default(0)
+  updatedAt        DateTime @updatedAt
 
   variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
   warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
@@ -1028,8 +1286,26 @@ model Customer {
   // are an external, still-evolving business rule this phase deliberately
   // does not hard-code — see this phase's own instructions ("do not
   // hard-code unstable fiscal rules that should later be configurable").
-  // ARCA integration itself is out of scope this phase.
+  // ARCA integration itself is out of scope this phase. Superseded for
+  // FISCAL/ARCA purposes by vatCondition below (Phase — ARCA Fiscal
+  // Readiness + Tax Model) — kept as-is, untouched, for its original
+  // general-purpose display/legacy role (this field may hold real
+  // admin-entered values from before the controlled field existed; unlike
+  // StoreConfiguration.issuerVatCondition, converting it in place risked
+  // silently discarding/misreading real data, so a new field was added
+  // instead — see this phase's own "reuse fields, do not duplicate"
+  // instruction, satisfied here the same way documentNumber/
+  // documentNumberNormalized already coexist as two different-precision
+  // views of one concept).
   taxCondition             String?
+  // Controlled representation of the recipient's ARCA CondicionIVAReceptorId
+  // — see the RecipientVatCondition enum's own comment. Null means "not
+  // yet determined" — resolveFiscalDocumentType/getArcaReadinessForSale
+  // treat this the same as any other missing required fiscal input; the
+  // Consumidor Final system customer keeps this null and is resolved via
+  // the identification-threshold rule instead (see arca/consumer-final-core.ts),
+  // never by setting this field to CONSUMIDOR_FINAL by convention.
+  vatCondition             RecipientVatCondition?
 
   // --- Contact --- both stored already-normalized at write time (see
   // modules/customers/normalize.ts: email lowercased/trimmed, phone
@@ -1081,6 +1357,11 @@ model Customer {
   // (a Customer with sales history can never be hard-deleted; deactivation
   // only, matching this model's own documented lifecycle policy above).
   sales Sale[]
+
+  // Phase — Online Orders & Checkout foundation. Nullable on Order (guest
+  // checkout support) — see Order.customerId's own comment. Restrict, same
+  // "commercial history outlives casual edits" posture as sales above.
+  orders Order[]
 
   // Strong-identifier duplicate prevention (see this phase's duplicate
   // detection policy in DATABASE.md): an exact match on (documentType,
@@ -1192,6 +1473,20 @@ model Sale {
   // pattern as Customer.code (pure candidate generator + DB-retry loop +
   // unique constraint; see modules/sales/record-code.ts).
   code        String     @unique
+  // Phase — Mercado Pago Checkout Pro integration. Set only for a Sale
+  // created by finalizePaidOrder (an approved online payment converting an
+  // Order into a real commercial Sale) — always null for a POS-built Sale.
+  // @unique is the actual DB-level guarantee behind "at most one successful
+  // Sale per Order" (see the Order model's own comment): two concurrent
+  // finalization attempts for the same Order can only ever successfully
+  // INSERT one Sale row referencing it — the second's INSERT fails the
+  // unique constraint outright, a hard guarantee beyond finalizePaidOrder's
+  // own row-lock/status-check application logic (defense in depth, same
+  // posture as every idempotencyKey unique constraint in this schema).
+  // Restrict: an Order that produced a real Sale can never simply vanish
+  // out from under it — same posture as every other Restrict relation into
+  // commercial-history rows in this schema.
+  orderId     String?    @unique
   customerId  String
   // Which physical location this sale's stock is/was consumed from —
   // required (never nullable): every confirmed sale must be able to
@@ -1205,6 +1500,20 @@ model Sale {
   // in application code (updateSale refuses to touch it outside DRAFT),
   // same documented-soft-enforcement posture as Role.isSystem elsewhere.
   warehouseId String
+  // Phase — Mercado Pago Checkout Pro integration. A Sale created by
+  // finalizePaidOrder from an approved online payment has no human actor —
+  // InventoryOperation.actorId (which confirming a Sale always writes via
+  // applyInventoryOperation) is NOT NULL with no precedent for nullability
+  // anywhere in the inventory module, so rather than widen that
+  // foundational, heavily-relied-on column (and Sale/SalePayment's own
+  // createdById along with it), this uses a single seeded, protected,
+  // never-logs-in "system" User row instead (see User.isSystemAccount and
+  // modules/roles/seed-core.ts's seedSystemAccount) — the exact same
+  // "well-known seeded row for the no-real-actor case" precedent this
+  // schema already established for Customer.isSystemDefault ("Consumidor
+  // Final"). createdById therefore stays required for every Sale, always a
+  // real, attributable User — a human staff member for POS sales, the
+  // system account for online-payment sales.
   createdById String
   status      SaleStatus @default(DRAFT)
   saleDate    DateTime   @default(now())
@@ -1260,15 +1569,23 @@ model Sale {
   warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   createdBy   User      @relation("SaleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   cancelledBy User?     @relation("SaleCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  order       Order?    @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
-  items    SaleItem[]
-  payments SalePayment[]
+  items           SaleItem[]
+  payments        SalePayment[]
+  fiscalDocuments FiscalDocument[]
 
   @@index([customerId])
   @@index([warehouseId])
   @@index([status])
   @@index([saleDate])
   @@index([paymentStatus])
+  // Phase — Sales Consultation & Commercial Reporting. Supports the new
+  // "Vendedor" filter (WHERE createdById = ?) — a plain equality filter
+  // with no existing index to piggyback on (unlike warehouseId/status/
+  // etc., which already had one). Not speculative: this is one of the
+  // report's explicitly spec'd filters.
+  @@index([createdById])
   @@map("sale")
 }
 
@@ -1305,6 +1622,32 @@ model SaleItem {
   // modules/sales/totals.ts before either persisted value is written.
   totalAmount     BigInt
 
+  // --- Fiscal tax snapshot — Phase: ARCA Fiscal Readiness correction pass.
+  // Same snapshot posture as productNameSnapshot/skuSnapshot/unitPriceAmount
+  // above: resolved ONCE at the moment this line is added (Product.
+  // taxCategory override, else StoreConfiguration.defaultTaxCategory, else
+  // null — see modules/sales/sale-core.ts's resolveSaleItem), then NEVER
+  // re-read from the live Product/StoreConfiguration afterward. A later
+  // change to either source must never alter a historical, already-
+  // confirmed Sale's fiscal detail. Null on both fields for every SaleItem
+  // that existed before this migration (never backfilled — see this
+  // phase's explicit "do not silently assign a tax category to historical
+  // Sales" requirement) and for any new line whose Product/store default
+  // were genuinely unconfigured at the moment it was added.
+  //
+  // taxRateBasisPoints is the numeric rate ACTUALLY IN EFFECT at snapshot
+  // time (e.g. 2100 for 21.00%) — stored separately from taxCategory
+  // (rather than re-derived from it at read time) so a Sale's historical
+  // fiscal detail survives even a hypothetical future change to what
+  // taxCategory's own rate mapping means; see modules/fiscal-documents/
+  // arca/fiscal-tax-category-core.ts's resolveFiscalTaxTreatment for where
+  // this value comes from. Null for taxCategory = EXENTO (no rate applies)
+  // and whenever taxCategory itself is null. Always an integer (basis
+  // points), never a float/percentage — see this phase's explicit "no
+  // floating-point percentages" requirement.
+  taxCategory        FiscalTaxCategory?
+  taxRateBasisPoints Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1312,6 +1655,15 @@ model SaleItem {
   productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
 
   @@index([saleId])
+  // Phase — Sales Consultation & Commercial Reporting. Supports "¿Cuántas
+  // ventas tuvieron este producto?" — resolving a product/SKU filter to
+  // matching Sales goes through SaleItem.productVariantId (never
+  // skuSnapshot directly, which is a free-text snapshot column a plain
+  // btree index wouldn't meaningfully help for a `contains` search — SKU
+  // search instead resolves ProductVariant ids first via ProductVariant.
+  // sku's own existing unique index, then filters SaleItem by variant id
+  // here).
+  @@index([productVariantId])
   @@map("sale_item")
 }
 
@@ -1358,11 +1710,19 @@ model SaleItem {
 //     the admin "Registrar pago" form deliberately never offers it as a
 //     manual selection (a manually-entered "Mercado Pago" payment would
 //     misrepresent an unverified transaction as if it came from the real
-//     provider integration). Provider-identification columns
-//     (provider/externalPaymentId) are deliberately NOT added yet — that
-//     is genuinely speculative schema surface until the actual webhook
-//     phase exists to populate/read them; add them in that phase's own
-//     migration instead of guessing their shape now.
+//     provider integration).
+//   - Phase — Mercado Pago Checkout Pro integration. MERCADO_PAGO is now
+//     actually written, exclusively by finalizePaidOrder (modules/orders/
+//     order-core.ts) — never by the admin "Registrar pago" form, which
+//     still never offers it (see above). No dedicated provider/
+//     externalPaymentId columns were added here: the provider payment id
+//     is stored in the existing `reference` field (exactly the same role a
+//     transfer's operation number already plays — an external reference
+//     for this payment) and correlation/reconciliation detail lives on
+//     OrderPaymentAttempt (see that model's own comment) — the
+//     BEFORE-a-Sale-exists record this integration actually needed, kept
+//     fully separate from SalePayment rather than speculatively widening
+//     an already-shipped model.
 // =============================================================================
 
 enum PaymentMethod {
@@ -1371,7 +1731,7 @@ enum PaymentMethod {
   DEBIT_CARD
   CREDIT_CARD
   OTHER
-  // Reserved for a future Mercado Pago integration — see the model-level
+  // Phase — Mercado Pago Checkout Pro integration. See the model-level
   // comment above. Not selectable in the admin "Registrar pago" form yet.
   MERCADO_PAGO
 }
@@ -1428,6 +1788,9 @@ model SalePayment {
   // model's own registerSalePayment for how it's generated/consumed.
   idempotencyKey String? @unique
 
+  // Phase — Mercado Pago Checkout Pro integration. Stays required — see
+  // Sale.createdById's own comment for why this uses the seeded system
+  // User account rather than becoming nullable.
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1451,4 +1814,703 @@ model SalePayment {
 
   @@index([saleId, status])
   @@map("sale_payment")
+}
+
+// =============================================================================
+// Phase — Fiscal Invoicing Foundation. Data model, rules and administrative
+// workflow for invoicing a CONFIRMED Sale — explicitly still NOT this phase:
+// WSAA, WSFEV1, CAE requests, ARCA certificates, fiscal QR generation,
+// automatic invoice PDF/email, credit notes, refunds, Andreani. See
+// modules/fiscal-documents/arca/issue-electronic-invoice-core.ts for the
+// documented future ARCA integration boundary.
+//
+// Deliberately a SEPARATE model from Sale, not dozens of invoice columns
+// bolted onto it — Sale.taxTotalAmount's own comment already anticipated
+// this exact phase ("a future invoicing phase adds its own independent
+// field here, never derives itself from this one"). Three independent axes,
+// never conflated:
+//   - Sale.status (commercial: DRAFT/CONFIRMED/CANCELLED)
+//   - Sale.paymentStatus (UNPAID/PARTIALLY_PAID/PAID)
+//   - "invoicing status" — deliberately NOT a persisted Sale column at all;
+//     derived purely from the Sale's own current (non-VOIDED) FiscalDocument,
+//     if any — see modules/fiscal-documents/fiscal-document-core.ts's
+//     deriveSaleInvoicingStatus. PAID never implies INVOICED; CONFIRMED
+//     never implies INVOICED.
+//
+// Migration context: CHAIOBOUTIQUE is transitioning from an existing
+// system. A Sale already invoiced in that parallel system is registered
+// here as mode SISTEMA_EXTERNO — explicitly NOT "unbilled" — specifically
+// to prevent it from later being sent to ARCA as a duplicate new invoice.
+// Nothing in this model conceals or hides a completed taxable Sale; every
+// FiscalDocument (including VOIDED ones) is permanent, queryable history.
+//
+// "At most one active fiscal document per Sale" — the actual duplicate-
+// invoicing guard — is enforced at the DB level by a hand-written PARTIAL
+// unique index (fiscal_document_sale_active_unique, on saleId WHERE status
+// != 'VOIDED'; see this migration's own SQL) rather than a plain
+// `saleId String @unique` FK: a unique FK would make it structurally
+// impossible to ever introduce a second fiscal document per Sale (e.g. a
+// future credit/debit note) without a breaking schema change. The partial
+// index instead allows any number of VOIDED historical rows while still
+// guaranteeing at most one currently-active one — same "null/status-axis
+// partial unique index" technique already used elsewhere in this schema
+// (Warehouse.isDefault, ProductImage.isPrimary, Cart's active-per-user,
+// CustomerAddress's default shipping/billing).
+//
+// A SECOND hand-written partial unique index
+// (fiscal_document_identifier_unique, on mode + sourceSystem + documentType
+// + pointOfSale + documentNumber, COALESCE'd, WHERE "documentNumber" IS NOT
+// NULL) prevents the same real document identifier from ever being
+// registered twice — scoped per mode/sourceSystem so an external system's
+// own numbering namespace never spuriously collides with this store's own
+// MANUAL numbering, or with a different external system's. Never enforced
+// for an ELECTRONICA_ARCA PENDING intent, which legitimately has no real
+// document number yet.
+enum InvoiceMode {
+  // Prepares only a PENDING intent this phase — see this migration's own
+  // "ELECTRONICA_ARCA mode" section. Never contacts ARCA.
+  ELECTRONICA_ARCA
+  // Registers a real fiscal document already issued outside this system
+  // (e.g. a handwritten/manually-typed receipt/invoice) — ISSUED
+  // immediately at registration time, since it documents an
+  // already-completed fact, not a request.
+  MANUAL
+  // Registers a real fiscal document already issued by CHAIOBOUTIQUE's
+  // previous/parallel system during the migration window — see this
+  // model's own "migration context" note above. ISSUED immediately, same
+  // posture as MANUAL.
+  SISTEMA_EXTERNO
+}
+
+// One FiscalDocument row's own lifecycle.
+enum FiscalDocumentStatus {
+  // ELECTRONICA_ARCA only, this phase: an invoicing intent has been
+  // created, but Mercado-Pago-style provider contact has NOT happened —
+  // there is no network call this phase. Reserved for the future ARCA
+  // phase's own PENDING-while-awaiting-CAE state too.
+  PENDING
+  // A real, valid fiscal document — set immediately for MANUAL/
+  // SISTEMA_EXTERNO at registration; reserved for ELECTRONICA_ARCA once a
+  // future phase actually receives a CAE.
+  ISSUED
+  // Reserved for a future ARCA request failure — not reachable by any code
+  // this phase writes (this phase never contacts ARCA at all), included
+  // now so PaymentAttemptStatus-style forward-compatibility never requires
+  // a breaking enum change later.
+  ERROR
+  // Administrative correction — see voidFiscalDocument. Never a physical
+  // delete (this schema never hard-deletes fiscal history) and NEVER to be
+  // confused with a real ARCA electronic-invoice cancellation or a
+  // credit/debit note, neither of which exist yet — this is purely "this
+  // CHAIOBOUTIQUE record was a data-entry mistake", logged with a mandatory
+  // reason, same posture as SalePayment's own void mechanism.
+  VOIDED
+}
+
+// See this model-group's own header comment for the full design rationale
+// (why a separate model, the "at most one active document" DB-level
+// guarantee, the identifier-uniqueness boundary).
+model FiscalDocument {
+  id     String @id @default(cuid())
+  saleId String
+
+  mode   InvoiceMode
+  status FiscalDocumentStatus @default(PENDING)
+
+  // --- Document identification — null for an ELECTRONICA_ARCA PENDING
+  // intent (nothing to identify yet); required by application-level
+  // validation for MANUAL/SISTEMA_EXTERNO at registration time (see
+  // modules/fiscal-documents/fiscal-document-core.ts). documentType is
+  // free text, deliberately never an enum of guessed ARCA invoice classes
+  // — see this phase's explicit "do not guess CHAIOBOUTIQUE's final ARCA
+  // fiscal classification" instruction; the real ARCA-specific
+  // classification arrives with the dedicated ARCA phase.
+  documentType   String?
+  pointOfSale    String?
+  documentNumber String?
+  issueDate      DateTime?
+
+  // Copied from StoreConfiguration.currency at creation time — same
+  // per-row-currency posture as Order/Cart, not a hardcoded assumption.
+  currency    String
+  // BigInt minor units — see docs/adr/0001-monetary-strategy.md, never
+  // float. netAmount/taxAmount are NOT a real VAT breakdown: this schema's
+  // Sale.taxTotalAmount is always 0 today (no tax model exists yet — see
+  // that field's own comment), so netAmount is simply set equal to
+  // totalAmount and taxAmount to 0 at creation time. Deliberately NOT
+  // faked as a 21% calculation — see this phase's explicit "do NOT fake a
+  // 21% VAT calculation just to populate a field" instruction. Real VAT
+  // breakdown arrives once the current system actually models tax
+  // correctly (documented limitation, not fixed this phase).
+  netAmount   BigInt
+  taxAmount   BigInt
+  totalAmount BigInt
+
+  // --- Customer fiscal snapshot — see this phase's explicit "historical
+  // fiscal documents must not change when Customer changes later"
+  // requirement. Same snapshot posture as Sale.customerNameSnapshot/
+  // customerDocumentSnapshot: written once from the live Customer row at
+  // FiscalDocument-creation time, never re-derived from a live join
+  // afterward, and never invents a value the source Customer row doesn't
+  // actually have. No address snapshot this phase — Customer has no single
+  // canonical address to copy (see CustomerAddress's own multi-address
+  // model) and this foundation's actual purpose (preventing duplicate
+  // invoicing) doesn't depend on it; documented as deferred scope, not an
+  // oversight.
+  customerNameSnapshot           String
+  customerDocumentTypeSnapshot   String?
+  customerDocumentNumberSnapshot String?
+  customerTaxIdSnapshot          String?
+  customerTaxConditionSnapshot   String?
+
+  // --- Provenance — required (by application-level validation) for
+  // SISTEMA_EXTERNO; always null for MANUAL/ELECTRONICA_ARCA. Suggested
+  // initial label "Sistema anterior" — a plain string, not hard-coded
+  // everywhere, so a genuinely different source system later doesn't need
+  // a schema change.
+  sourceSystem      String?
+  externalReference String?
+
+  // --- Real ARCA fields — Phase: ARCA Homologation, Real WSAA + WSFEv1
+  // Integration. Populated ONLY by issue-electronic-invoice-core.ts's real
+  // issueElectronicInvoice() flow when this document's mode is
+  // ELECTRONICA_ARCA and status transitions to ISSUED — every other mode
+  // (MANUAL/SISTEMA_EXTERNO) and every PENDING/ERROR/VOIDED
+  // ELECTRONICA_ARCA row leaves these null. Never fabricated: every value
+  // here is copied verbatim from ARCA's own FECAESolicitar response.
+  cae                  String?
+  caeExpiresAt         DateTime?
+  // Snapshots WHICH environment this specific document was actually
+  // issued under (always HOMOLOGATION this phase — see this codebase's
+  // explicit "never implement the production posture" scope) — the
+  // authoritative source for the mandatory "HOMOLOGACIÓN" watermark on the
+  // admin UI, so a future production rollout can never accidentally make
+  // an old homologation document LOOK real just because a global setting
+  // changed later. Null for MANUAL/SISTEMA_EXTERNO and for an
+  // ELECTRONICA_ARCA row that never reached ISSUED.
+  arcaEnvironment      ArcaEnvironment?
+  // The exempt-amount half of the same fiscal decomposition that produced
+  // netAmount/taxAmount above (see tax-calculation-core.ts's own
+  // FiscalCalculationResult.exemptAmount) — kept as a genuinely separate
+  // column rather than folded into netAmount, matching WSFEv1's own
+  // ImpOpEx/ImpNeto distinction. Null for MANUAL/SISTEMA_EXTERNO (which
+  // never compute a real tax breakdown at all — see this model's own
+  // netAmount/taxAmount comment above) and for a not-yet-ISSUED
+  // ELECTRONICA_ARCA row.
+  exemptAmount         BigInt?
+  // The resolved per-rate VAT breakdown actually sent to and authorized by
+  // ARCA — one entry per distinct rate (mirrors tax-calculation-core.ts's
+  // own TaxBreakdownEntry[], amounts serialized as decimal strings since
+  // JSON has no BigInt type: never re-parsed as an authority for anything
+  // — the BigInt netAmount/taxAmount columns above remain authoritative;
+  // this is audit/display detail only). Null unless ISSUED.
+  arcaTaxBreakdown     Json?
+  // A SAFE subset of ARCA's own FECAESolicitar response — Resultado
+  // (APPROVED/REJECTED), Observaciones/Errors/Events arrays (each
+  // {code, message}) — kept for admin-facing audit/debugging of exactly
+  // what ARCA said, without ever storing Token/Sign or the full raw SOAP
+  // payload (see this phase's explicit "never log/persist auth material"
+  // requirement — this column is reviewed by the same discipline). Set on
+  // both ISSUED (Resultado "A") and ERROR (Resultado "R", a real
+  // rejection) outcomes — never on a network/protocol-level failure, which
+  // instead leaves the FiscalDocument at PENDING for
+  // reconcileArcaFiscalDocument to resolve later (see that function's own
+  // header comment).
+  arcaResponseMetadata Json?
+
+  notes String?
+
+  // Real, client-generated duplicate-submission guard — same exact
+  // convention as SalePayment.idempotencyKey/InventoryOperation.
+  // idempotencyKey (nullable + unique, so any number of NULLs coexist
+  // under Postgres's any-NULL-is-distinct unique-index semantics). This is
+  // the "repeated form submission" guard (a literal double-click/network
+  // retry) — a genuinely DIFFERENT concern from the identifier-uniqueness
+  // partial index above (which catches "this real document number is
+  // already registered", even from an unrelated submission).
+  idempotencyKey String? @unique
+
+  // --- Void fields — set together, only once, only by voidFiscalDocument.
+  // The original document identification/amounts above are NEVER edited
+  // when a document is voided — a status flag plus a mandatory-reason audit
+  // trail, never a rewrite. Same immutability posture as SalePayment's own
+  // void mechanism.
+  voidedAt   DateTime?
+  voidedById String?
+  voidReason String?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Restrict: a Sale/User referenced by fiscal history can never simply
+  // vanish out from under it — same posture as every other Restrict
+  // relation into commercial-history rows in this schema.
+  sale      Sale  @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  createdBy User  @relation("FiscalDocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedBy  User? @relation("FiscalDocumentVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+
+  @@index([saleId])
+  @@index([mode, status])
+  @@map("fiscal_document")
+}
+
+// =============================================================================
+// Phase — Online Orders & Checkout foundation, now integrated with real
+// Mercado Pago Checkout Pro payments (see the Mercado Pago Checkout Pro
+// integration checkpoint below). Turns the public Cart into a real
+// commercial Order. Explicitly still NOT this phase: ARCA/fiscal invoicing,
+// invoice PDF/email delivery, shipping-provider (Andreani) APIs, returns/
+// refunds, Payment Brick / in-app card collection, Mercado Pago Point.
+//
+// Order vs Sale — these are deliberately DIFFERENT concepts, not two names
+// for the same thing:
+//   - Order: a customer's purchase INTENT, created the moment checkout is
+//     submitted. Stock is only ever RESERVED against an Order (see
+//     InventoryReservation below), never physically deducted.
+//   - Sale: the confirmed commercial transaction that actually consumes real
+//     stock (see the Sale model above).
+//
+// Mercado Pago flow (see modules/orders/order-core.ts's finalizePaidOrder
+// and modules/payments/mercado-pago/ for the full implementation):
+//   Order created (PENDING_PAYMENT)
+//     -> createMercadoPagoPreference: one OrderPaymentAttempt per checkout
+//        attempt (see that model's own comment)
+//     -> customer redirected to Mercado Pago Checkout Pro, pays
+//     -> Mercado Pago webhook -> reconcileMercadoPagoPayment verifies the
+//        payment server-to-server (never trusts the notification body or
+//        the browser return redirect alone)
+//     -> on APPROVED + amount/currency match: finalizePaidOrder — consumes
+//        the reservation, creates+confirms a Sale (real InventoryMovement,
+//        MovementType.SALE), registers a SalePayment, marks Order PAID,
+//        links Sale.orderId back to this Order (see that field's own
+//        comment for the DB-level at-most-one-Sale guarantee).
+// A checkout submission is deliberately NEVER turned directly into a
+// CONFIRMED Sale — seeing PENDING_PAYMENT Orders in the admin is expected
+// and correct until payment is verified.
+//
+// Reservation model — see InventoryBalance.reservedQuantity's own comment
+// for the exact mechanism. The short version: "available to sell" =
+// InventoryBalance.quantity - InventoryBalance.reservedQuantity, and this is
+// the ONE formula every availability-sensitive read path (cart, public
+// product page, checkout, POS Sale confirmation) uses — see
+// modules/inventory/service-core.ts's getAvailableToSell.
+// =============================================================================
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  READY_FOR_PICKUP
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  EXPIRED
+}
+
+// The Order-level payment aggregate — deliberately independent from
+// OrderStatus above (never overloaded into it) and from a future invoicing
+// status (not modeled yet — see this phase's own notes: PAID must never
+// imply INVOICED). Mirrors SalePaymentStatus's shape, but is its own type:
+// an Order's payment status this phase is a plain field (no real payment
+// integration exists yet to derive it from anything richer), not backed by
+// a SalePayment-style ledger — that arrives with the Mercado Pago phase.
+enum OrderPaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+}
+
+enum DeliveryMethod {
+  PICKUP
+  HOME_DELIVERY
+}
+
+// One InventoryReservation row's lifecycle. ACTIVE counts against
+// InventoryBalance.reservedQuantity; every other status does not (and the
+// row's own reservedQuantity contribution has already been released back —
+// see modules/inventory/reservation-core.ts). Never deleted — same
+// "append + a status flag, never destroy history" posture as SalePayment.
+enum ReservationStatus {
+  ACTIVE
+  CONSUMED
+  RELEASED
+  EXPIRED
+}
+
+// A customer's purchase intent — see the model-level comment above for the
+// full Order-vs-Sale design. Always has a contact snapshot (name/email/
+// phone) regardless of guest-vs-authenticated, exactly like Sale's own
+// customerNameSnapshot/customerDocumentSnapshot: a later edit to Customer or
+// User must never rewrite a historical Order.
+model Order {
+  id   String @id @default(cuid())
+  // Human-friendly reference number, customer/admin-facing — "PED-" prefix
+  // (pedido), same three-part generator + DB-retry-loop + unique-constraint
+  // pattern as Sale.code/Customer.code; see modules/orders/record-code.ts.
+  code String @unique
+
+  // --- Ownership — deliberately BOTH nullable: guest checkout is
+  // explicitly supported (see this phase's own requirements). An
+  // authenticated checkout sets both (userId directly, customerId via the
+  // signed-in User's linked commercial Customer). A guest checkout sets
+  // NEITHER at creation time — see modules/orders/order-core.ts's
+  // documented guest-Customer policy: a guest Order may exist with no
+  // Customer at all; matching/creating one happens only after a future
+  // successful payment, never speculatively here. Restrict: once an Order
+  // references a Customer/User, that row can never simply vanish out from
+  // under it — same posture as Sale.customerId/createdById.
+  customerId String?
+  userId     String?
+
+  status        OrderStatus        @default(PENDING_PAYMENT)
+  paymentStatus OrderPaymentStatus @default(UNPAID)
+
+  deliveryMethod DeliveryMethod
+  // The warehouse this Order's items are reserved against and will
+  // eventually be fulfilled/shipped from — resolved server-side to the
+  // system default warehouse at checkout time (see
+  // modules/orders/order-core.ts), same "never silently guessed, but never
+  // asked of the customer either" posture as Sale.warehouseId. Restrict:
+  // same "referenced-by-commercial-history" posture as every other
+  // warehouseId FK in this schema.
+  warehouseId    String
+
+  // Copied from StoreConfiguration.currency at creation time — same
+  // per-row-currency posture as every other monetary row in this schema
+  // (Cart, Sale, ...), not a hardcoded global assumption.
+  currency String
+
+  // All BigInt minor units. Recomputed server-side from OrderItem rows
+  // (subtotal/discount) plus the resolved delivery fee (shipping) on
+  // creation — see modules/orders/totals.ts — never trusted from the
+  // client, and never hand-edited independently of the item set/delivery
+  // method (an Order's items are fixed at submission time; there is no
+  // "edit an existing Order's cart" operation in this phase).
+  subtotalAmount BigInt @default(0)
+  discountAmount BigInt @default(0)
+  // Resolved once from StoreConfiguration.homeDeliveryFlatFeeAmount at
+  // creation time (0 for PICKUP) — see this phase's documented
+  // shipping-cost policy. A later change to the store's configured fee must
+  // never rewrite an already-placed Order's total.
+  shippingAmount BigInt @default(0)
+  totalAmount    BigInt @default(0)
+
+  // --- Contact snapshot — always present, guest or authenticated. Editable
+  // at checkout without silently rewriting the Customer/User master record
+  // (see this phase's own requirement) — this is genuinely independent
+  // data, not a live join back to Customer for display.
+  contactNameSnapshot  String
+  contactEmailSnapshot String
+  contactPhoneSnapshot String?
+
+  // --- Delivery-address snapshot — populated only for HOME_DELIVERY (all
+  // null for PICKUP). Explicit columns, not a JSON blob: mirrors
+  // CustomerAddress's own field shape exactly (see that model) so the
+  // snapshot-vs-live-record relationship stays obvious, and so this stays
+  // queryable/reportable like every other structured column in this schema.
+  // A later edit to (or deletion of) the source CustomerAddress must never
+  // alter this Order's historical record.
+  shippingLabel      String?
+  shippingStreet     String?
+  shippingNumber     String?
+  shippingFloor      String?
+  shippingApartment  String?
+  shippingPostalCode String?
+  shippingCity       String?
+  shippingProvince   String?
+  shippingCountry    String?
+  shippingNotes      String?
+
+  notes String?
+
+  // --- Security — see this phase's explicit "no public Order lookup by
+  // predictable ID" requirement. Every Order (guest AND authenticated
+  // alike — one uniform mechanism, not two) gets a real bearer token:
+  // crypto.randomBytes(32) (same entropy as Cart.anonymousToken), but
+  // stored HASHED (SHA-256), never in plaintext — same "never store a
+  // bearer credential in cleartext" posture requested explicitly. The raw
+  // token is returned exactly once, at creation, embedded in the
+  // /order/[token] confirmation URL; see modules/orders/access-token.ts.
+  // An authenticated owner may additionally reach their own Order via
+  // session ownership (Order.userId match) with no token at all.
+  accessTokenHash String @unique
+
+  // Client-generated (crypto.randomUUID() at checkout-page-mount time,
+  // resubmitted unchanged on retry) — protects against double-click/
+  // network-retry creating two Orders for one logical checkout. See
+  // modules/orders/order-core.ts's createOrderFromCart: a retry with the
+  // same key returns the SAME Order rather than erroring, unlike
+  // SalePayment's duplicate-submission handling — a checkout retry should
+  // look like success to the customer, not a rejected form.
+  idempotencyKey String? @unique
+
+  // Set at creation, alongside every ACTIVE InventoryReservation this Order
+  // owns — see modules/orders/constants.ts's RESERVATION_WINDOW_MINUTES.
+  // Null only for an Order that's moved past the reservation-sensitive
+  // phase entirely (PAID/CANCELLED/EXPIRED) — see
+  // modules/orders/order-core.ts's cancelOrder/expireStaleOrdersAndReservations.
+  reservationExpiresAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  // Set the moment checkout succeeds — today this always equals createdAt
+  // in practice (an Order is only ever created already-submitted, there is
+  // no separate "draft Order" concept the way Sale has DRAFT), kept as its
+  // own column so a future multi-step/save-for-later checkout doesn't need
+  // a breaking schema change.
+  submittedAt DateTime?
+
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
+
+  // Phase — Mercado Pago Checkout Pro integration. A deliberately SEPARATE
+  // axis from `paymentStatus` (never overloaded into it — same "separate
+  // axis" posture as Sale.status vs Sale.paymentStatus): an Order needing
+  // review is an operational exception ("something needs a human"), not a
+  // payment state in the same sense as UNPAID/PARTIALLY_PAID/PAID. Set only
+  // by finalizePaidOrder, exclusively for a genuinely approved payment that
+  // could not be safely finalized — an amount/currency mismatch, or a late
+  // approval with no stock left to safely fulfill (see that function's own
+  // doc comment). Never set for an ordinary pending/rejected payment
+  // attempt, which stays plain UNPAID and payable — see
+  // OrderPaymentAttempt.status for that. `paymentReviewReason` is the
+  // admin-facing Spanish explanation shown on /admin/orders/[id]; the
+  // structured, machine-readable cause lives on the relevant
+  // OrderPaymentAttempt.failureCode instead (never duplicated here as an
+  // enum — this flag only needs to answer "does this need attention", not
+  // "why", which the linked attempt already records precisely).
+  requiresPaymentReview Boolean @default(false)
+  paymentReviewReason   String?
+
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  user        User?     @relation("OrderPlacedByUser", fields: [userId], references: [id], onDelete: Restrict)
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  cancelledBy User?     @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  items           OrderItem[]
+  reservations    InventoryReservation[]
+  paymentAttempts OrderPaymentAttempt[]
+  // Implicit 1:1 back-relation — see Sale.orderId's own comment for the
+  // DB-level "at most one Sale per Order" guarantee this is built on. Null
+  // until finalizePaidOrder successfully creates one.
+  sale            Sale?
+
+  @@index([customerId])
+  @@index([userId])
+  @@index([warehouseId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@index([requiresPaymentReview])
+  // Backs the expiration sweep's "find stale PENDING_PAYMENT Orders" query
+  // — see modules/orders/order-core.ts's expireStaleOrdersAndReservations.
+  @@index([status, reservationExpiresAt])
+  @@map("order")
+}
+
+// One product line within an Order. Same snapshot discipline as SaleItem —
+// productNameSnapshot/skuSnapshot/sizeNameSnapshot/colorNameSnapshot/
+// unitPriceAmount are all written once at checkout submission and never
+// re-read from the live Product/ProductVariant afterward. References
+// ProductVariant (never Product directly), same modeling choice as
+// CartItem/SaleItem.
+model OrderItem {
+  id               String @id @default(cuid())
+  orderId          String
+  productVariantId String
+
+  productNameSnapshot String
+  skuSnapshot         String
+  sizeNameSnapshot    String?
+  colorNameSnapshot   String?
+
+  quantity        Int
+  unitPriceAmount BigInt
+  discountAmount  BigInt @default(0)
+  // quantity * unitPriceAmount
+  subtotalAmount  BigInt
+  // subtotalAmount - discountAmount — never negative; same guard as
+  // SaleItem, enforced in modules/sales/totals.ts's computeSaleItemTotals
+  // (reused directly — the arithmetic is identical, no second copy).
+  totalAmount     BigInt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("order_item")
+}
+
+// A stock COMMITMENT, not a physical movement — see
+// InventoryBalance.reservedQuantity's own comment for the full mechanism.
+// Created atomically alongside its Order (see
+// modules/inventory/reservation-core.ts's reserveStock), released
+// (RELEASED/EXPIRED/CONSUMED) without ever touching InventoryBalance.
+// quantity or creating an InventoryMovement — inventory only physically
+// moves when a real Sale is confirmed (POS today; a future finalizePaidOrder
+// for online Orders — see the Order model's own comment).
+model InventoryReservation {
+  id               String            @id @default(cuid())
+  orderId          String
+  productVariantId String
+  warehouseId      String
+  quantity         Int
+  status           ReservationStatus @default(ACTIVE)
+  expiresAt        DateTime
+  createdAt        DateTime          @default(now())
+  releasedAt       DateTime?
+  consumedAt       DateTime?
+
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  warehouse      Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  // Backs the expiration sweep's "find ACTIVE reservations past expiresAt"
+  // query, and general "is this variant/warehouse currently reserved"
+  // lookups.
+  @@index([status, expiresAt])
+  @@index([productVariantId, warehouseId, status])
+  @@map("inventory_reservation")
+}
+
+// =============================================================================
+// Phase — Mercado Pago Checkout Pro integration. Explicitly still NOT this
+// phase: ARCA invoicing, invoice PDFs/email, Andreani, returns/refunds,
+// Payment Brick / in-app card collection, Mercado Pago Point.
+//
+// Why a separate model from SalePayment: online payment happens BEFORE a
+// Sale exists (a customer can create a Mercado Pago preference, and even
+// have Mercado Pago approve a payment, for an Order that never becomes a
+// Sale — an amount mismatch, a late approval with no stock left, or simply
+// an abandoned/rejected checkout) — SalePayment.saleId is NOT NULL by
+// design (see that model's own comment: "Always belongs to exactly one
+// Sale"), so it structurally cannot represent a pre-Sale payment attempt.
+// This model is that missing PRE-Sale record; once finalizePaidOrder
+// successfully creates a Sale, the actual collected payment is ALSO
+// represented in SalePayment through the existing payment architecture
+// (method: MERCADO_PAGO, reference: the provider payment id) — this model
+// is never a second, parallel payment-status system, just the record of
+// what happened on the Mercado Pago side before/while that Sale-side
+// payment was created.
+//
+// One row per "Pagar con Mercado Pago" preference (not per raw provider
+// payment id — see modules/payments/mercado-pago/preference-core.ts's
+// idempotent-preference-reuse policy): a rejected-then-retried checkout
+// within the same Checkout Pro session updates THIS SAME row's status/
+// providerPaymentId to whatever Mercado Pago most recently reported —
+// every transition is also written to AuditLog (action:
+// "order_payment_attempt.*"), which is the durable per-event history; this
+// row itself only needs to reflect current, not full historical, state.
+model OrderPaymentAttempt {
+  id      String @id @default(cuid())
+  orderId String
+
+  provider PaymentAttemptProvider @default(MERCADO_PAGO)
+  status   PaymentAttemptStatus   @default(CREATED)
+
+  // Snapshot of Order.totalAmount/currency at the moment THIS preference
+  // was created — see createMercadoPagoPreference's own "use authoritative
+  // Order snapshots/totals" requirement. Order.totalAmount is itself
+  // immutable after creation (see that field's own comment), so this can
+  // never actually drift from it, but reconciliation still compares
+  // against Order.totalAmount directly (the single source of truth), never
+  // this cached copy — see reconcileMercadoPagoPayment.
+  amount   BigInt
+  currency String
+
+  // Mercado Pago's preference id (what the browser is redirected to pay
+  // against) and, once a payment is made against it, Mercado Pago's
+  // payment id (what the webhook/reconciliation service correlates and
+  // verifies server-to-server). Both nullable + unique: a preference with
+  // no payment yet has no providerPaymentId (any number of NULLs coexist
+  // under Postgres's any-NULL-is-distinct unique-index semantics, same
+  // convention as SalePayment.idempotencyKey), and a given real provider
+  // id must never be claimed by two different attempt rows.
+  providerPreferenceId String? @unique
+  providerPaymentId    String? @unique
+  // The exact, safe Checkout Pro redirect URL returned to the browser
+  // (Mercado Pago's init_point/sandbox_init_point) — persisted so a
+  // reused/idempotent preference-creation call returns it from the
+  // database, never a second call to Mercado Pago's API just to re-fetch a
+  // URL that hasn't changed.
+  checkoutUrl          String?
+
+  // Client-generated (crypto.randomUUID() at "Pagar con Mercado Pago"
+  // click time, resubmitted unchanged on retry) — same exact convention as
+  // Order.idempotencyKey/SalePayment.idempotencyKey: a literal double-
+  // click/network retry of the same click returns this SAME row rather
+  // than creating a redundant preference at Mercado Pago.
+  idempotencyKey String? @unique
+
+  // Safe failure detail only, for the admin "Verificar pago" / order
+  // detail UI — machine-readable code (e.g. "AMOUNT_MISMATCH",
+  // "CURRENCY_MISMATCH", "INSUFFICIENT_STOCK", provider status_detail
+  // values) plus a short human string. Never a raw provider payload — see
+  // this integration's explicit "do not store opaque provider payloads
+  // unnecessarily" requirement.
+  failureCode   String?
+  failureDetail String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  approvedAt DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([orderId, status])
+  @@index([orderId, createdAt])
+  @@map("order_payment_attempt")
+}
+
+enum PaymentAttemptProvider {
+  // The only provider this integration implements — kept as a single-value
+  // enum (not a plain string) so a genuinely new provider later is an
+  // additive enum value, never a data migration; same precedent as
+  // PaymentMethod reserving MERCADO_PAGO ahead of this exact phase.
+  MERCADO_PAGO
+}
+
+// One OrderPaymentAttempt row's own lifecycle. Distinct from
+// Order.paymentStatus (the Order-level aggregate) and from
+// Order.requiresPaymentReview (a separate operational-exception axis — see
+// that field's own comment) — this is specifically "what did Mercado Pago
+// last report for this preference".
+enum PaymentAttemptStatus {
+  // Preference created at Mercado Pago; no payment made against it yet.
+  CREATED
+  // Mercado Pago reports pending/in_process (e.g. an offline/slow payment
+  // method awaiting confirmation) — Order stays PENDING_PAYMENT/UNPAID.
+  PENDING
+  // Mercado Pago approved the payment AND finalizePaidOrder successfully
+  // created the resulting Sale. Sticky: never regresses to any other
+  // status once reached (see reconcileMercadoPagoPayment's own guarded
+  // update) — a late/duplicate/out-of-order notification can never move an
+  // already-APPROVED attempt backward.
+  APPROVED
+  // Mercado Pago rejected the payment. The Order remains payable while its
+  // reservation is still valid — see this integration's documented
+  // "do not release reservation immediately merely because one payment
+  // attempt was rejected" policy.
+  REJECTED
+  CANCELLED
+  // Mercado Pago reports the payment as refunded. Recorded only — no
+  // refund business flow is implemented this phase.
+  REFUNDED
+  // A genuinely approved Mercado Pago payment that finalizePaidOrder could
+  // NOT safely turn into a Sale (amount/currency mismatch, or a late
+  // approval with insufficient current stock) — see Order.
+  // requiresPaymentReview, which is set alongside this status. Never
+  // silently ignored: this is the "surfaced for admin review" state this
+  // integration's amount-verification requirement calls for.
+  FAILED_RECONCILIATION
+  // Superseded by a newer attempt for the same Order (see
+  // createMercadoPagoPreference's idempotent-preference-reuse policy) —
+  // logically invalidated, never deleted.
+  SUPERSEDED
 }

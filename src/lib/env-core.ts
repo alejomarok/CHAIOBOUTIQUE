@@ -60,22 +60,75 @@ const envSchema = z.object({
   STORE_LOCALE: z.string().min(1),
   STORE_TIMEZONE: z.string().min(1),
 
-  // Store social/contact presence — every one optional and unset by
-  // default. The public footer (src/components/layout/public-footer.tsx)
-  // reads these as the single source of truth and hides each element
-  // gracefully when its value is absent, rather than ever hardcoding a
-  // URL/number/address or showing a dead placeholder link.
-  STORE_INSTAGRAM_URL: optional(z.url()),
-  STORE_FACEBOOK_URL: optional(z.url()),
-  STORE_TIKTOK_URL: optional(z.url()),
-  STORE_WHATSAPP_NUMBER: optional(z.string().min(1)),
-  STORE_CONTACT_EMAIL: optional(z.email()),
-  STORE_CITY: optional(z.string().min(1)),
+  // Store social/contact presence — Phase: Public Footer Redesign moved
+  // this from env vars to StoreConfiguration (see that model's schema
+  // comment): a non-technical admin can now edit it live from
+  // /admin/settings instead of needing a deploy/restart. No STORE_
+  // INSTAGRAM_URL/FACEBOOK_URL/TIKTOK_URL/WHATSAPP_NUMBER/CONTACT_EMAIL/
+  // CITY env vars exist anymore — do not reintroduce them here.
 
   // Initial admin — optional; the seed skips admin creation when absent.
   INITIAL_ADMIN_NAME: optional(z.string().min(1)),
   INITIAL_ADMIN_EMAIL: optional(z.email()),
   INITIAL_ADMIN_PASSWORD: optional(z.string().min(8)),
+
+  // Mercado Pago Checkout Pro — Phase: Mercado Pago Checkout Pro
+  // integration. All optional here (fail-closed at the point of use — see
+  // modules/payments/mercado-pago/config-core.ts's getMercadoPagoConfig —
+  // same posture as Supabase Storage's SUPABASE_URL/SUPABASE_SECRET_KEY):
+  // the app must boot and every other feature must keep working even with
+  // no Mercado Pago credentials configured at all. Server-only — never
+  // prefixed NEXT_PUBLIC_. No MERCADO_PAGO_PUBLIC_KEY: this integration is
+  // Checkout Pro via a plain redirect to the preference's checkout URL,
+  // never a client-side MP.js SDK / Payment Brick, so a public key is
+  // genuinely not needed this phase (see the final report for this
+  // decision).
+  MERCADO_PAGO_ACCESS_TOKEN: optional(z.string().min(1)),
+  MERCADO_PAGO_WEBHOOK_SECRET: optional(z.string().min(1)),
+  // Explicit, never sniffed from the access token's own string shape —
+  // Mercado Pago's own docs do not guarantee a stable prefix convention
+  // across integrations, so guessing TEST vs PRODUCTION from the token
+  // would be exactly the kind of "obsolete example" this integration was
+  // told not to rely on. Required together with MERCADO_PAGO_ACCESS_TOKEN
+  // (enforced in config-core.ts, not here) — used only for the startup
+  // diagnostic banner and admin-facing labels, never to change validation
+  // behavior.
+  MERCADO_PAGO_ENVIRONMENT: optional(z.enum(["TEST", "PRODUCTION"])),
+  // Overrides NEXT_PUBLIC_APP_URL for constructing Mercado Pago's
+  // back_urls/notification_url ONLY — see this integration's local-webhook-
+  // development documentation. Mercado Pago cannot reach
+  // http://localhost:3000, so a developer doing a real sandbox test points
+  // this at their HTTPS tunnel URL instead of changing NEXT_PUBLIC_APP_URL
+  // itself (which affects unrelated things like email links). Falls back to
+  // NEXT_PUBLIC_APP_URL when unset — this is the "APP_PUBLIC_URL" concept
+  // this integration's spec describes, deliberately reusing the existing
+  // app-wide URL setting rather than introducing a second, redundant
+  // general-purpose one.
+  MERCADO_PAGO_PUBLIC_BASE_URL: optional(z.url()),
+
+  // Shared secret for the protected internal maintenance endpoint (POST
+  // /api/internal/expire-stale-orders — see that route's own comment and
+  // this integration's "real scheduler preparation" requirement). Optional:
+  // when unset, the endpoint refuses every request (fail closed) — there is
+  // no way to invoke it without deliberately configuring this. Never
+  // NEXT_PUBLIC_, never logged.
+  INTERNAL_TASK_SECRET: optional(z.string().min(16)),
+
+  // ARCA (WSAA/WSFEv1) homologation certificate — Phase: ARCA Homologation
+  // — Real WSAA + WSFEv1 Integration. FILE PATHS, never the raw PEM
+  // content: a path can point at a local, gitignored file (see .gitignore's
+  // *.pem/*.key/*.p12/*.pfx entries) without ever putting certificate/key
+  // material in an env var value that could end up echoed in a shell
+  // history, a process list, or a misconfigured logging integration. All
+  // optional — see modules/fiscal-documents/arca/certificate-core.ts's
+  // getArcaConnectionReadiness for how an absent value surfaces as a real,
+  // specific readiness blocker, never a crash. Server-only: never
+  // NEXT_PUBLIC_, never read from a Client Component. ARCA_PRIVATE_KEY_PASSPHRASE
+  // is optional because a homologation key is commonly generated without one
+  // — never assumed blank when actually set.
+  ARCA_CERTIFICATE_PATH: optional(z.string().min(1)),
+  ARCA_PRIVATE_KEY_PATH: optional(z.string().min(1)),
+  ARCA_PRIVATE_KEY_PASSPHRASE: optional(z.string()),
 
   // E2E testing only — never set this in a real dev/production .env. Only
   // playwright.config.ts's webServer.env sets it to "true", which switches

@@ -65,8 +65,11 @@ test.describe("admin sales/POS foundation (real DB, real HTTP)", () => {
     await page.getByRole("button", { name: "Iniciar sesión" }).click();
     await expect(page).toHaveURL(/\/admin/);
 
-    // 1. Ir a Ventas -> Nueva venta.
-    await page.getByRole("link", { name: "Ventas" }).click();
+    // 1. Ir a Ventas -> Nueva venta. exact: true — the "Comercial" nav
+    // group also has a "Consultas de ventas" link since the Sales
+    // Consultation & Commercial Reporting phase, which fuzzy-matches
+    // "Ventas" too without this.
+    await page.getByRole("link", { name: "Ventas", exact: true }).click();
     await expect(page).toHaveURL(/\/admin\/sales$/);
     await page.getByRole("link", { name: "Nueva venta" }).click();
     await expect(page).toHaveURL(/\/admin\/sales\/new/);

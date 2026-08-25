@@ -106,9 +106,11 @@ export function displayToMinorUnits(rawInput: string): bigint {
 
 // String-only conversion from minor units to a "-123.45"-shaped decimal
 // string — no float involved. Number() is applied only afterward, and only
-// for Intl.NumberFormat's display formatting (see minorUnitsToDisplay),
+// for Intl.NumberFormat's display formatting (see minorUnitsToDisplay) or
+// for constructing an outbound third-party API payload that itself requires
+// a decimal number (see modules/payments/mercado-pago/amount-core.ts) —
 // never for storage, comparison, or parsing.
-function minorUnitsToDecimalString(amountMinorUnits: bigint): string {
+export function minorUnitsToDecimalString(amountMinorUnits: bigint): string {
   const negative = amountMinorUnits < 0n;
   const absDigits = (negative ? -amountMinorUnits : amountMinorUnits).toString().padStart(3, "0");
   const integerPart = absDigits.slice(0, -2);

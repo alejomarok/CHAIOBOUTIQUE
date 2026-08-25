@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/modules/auth";
 import { getCustomerById } from "@/modules/customers/customer";
 import { getCustomerDisplayName } from "@/modules/customers/normalize";
+import { RECIPIENT_VAT_CONDITION_LABELS_ES } from "@/modules/fiscal-documents/arca/vat-condition-labels";
 
 import { CustomerAddressManager } from "./customer-address-manager";
 import { CustomerOnlineAccount } from "./customer-online-account";
@@ -142,6 +143,12 @@ export default async function CustomerDetailPage({
               {customer.taxCondition
                 ? (TAX_CONDITION_LABELS[customer.taxCondition] ?? customer.taxCondition)
                 : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Condición frente al IVA — ARCA</p>
+            <p>
+              {customer.vatCondition ? RECIPIENT_VAT_CONDITION_LABELS_ES[customer.vatCondition] : "No determinada"}
             </p>
           </div>
         </CardContent>

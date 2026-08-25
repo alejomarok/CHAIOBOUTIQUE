@@ -53,6 +53,7 @@ const MANAGER_PERMISSIONS: Permission[] = [
   "expenses.manage",
   "orders.view",
   "orders.manage",
+  "orders.cancel",
   "shipments.view",
   "shipments.manage",
   "invoices.view",

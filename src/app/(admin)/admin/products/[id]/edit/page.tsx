@@ -70,6 +70,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
                   : "",
               minimumStockThreshold:
                 product.minimumStockThreshold !== null ? String(product.minimumStockThreshold) : "",
+              taxCategory: product.taxCategory ?? "",
             }}
           />
         </CardContent>

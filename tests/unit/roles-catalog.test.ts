@@ -120,4 +120,90 @@ describe("role catalog", () => {
       }
     }
   });
+
+  it("orders.cancel mirrors sales.cancel's exact grant — ADMIN and MANAGER only", () => {
+    for (const roleKey of ["ADMIN", "MANAGER"]) {
+      const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+      expect(role.permissions, `${roleKey} should have "orders.cancel"`).toContain("orders.cancel");
+    }
+    for (const roleKey of ["SALES_REPRESENTATIVE", "WAREHOUSE", "ACCOUNTANT", "CUSTOMER"]) {
+      const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+      expect(role.permissions, `${roleKey} should NOT have "orders.cancel"`).not.toContain("orders.cancel");
+      // But orders.view/orders.manage are unaffected by this phase for the
+      // roles that already had them (WAREHOUSE/SALES_REPRESENTATIVE) —
+      // orders.cancel is strictly additive, never a replacement.
+    }
+    expect(
+      ROLE_DEFINITIONS.find((r) => r.key === "WAREHOUSE")!.permissions,
+    ).toContain("orders.manage");
+  });
+
+  // Phase — Fiscal Invoicing Foundation. invoices.view/issue/cancel already
+  // existed in the catalog before this phase (reused unchanged, never
+  // re-invented) — this asserts the exact role matrix this phase's fiscal
+  // document workflow relies on: viewing fiscal data is separate from
+  // registering/voiding it (invoices.issue vs invoices.cancel), and
+  // CUSTOMER receives zero admin invoice permissions.
+  it("invoices.view/issue are granted to ADMIN, MANAGER, SALES_REPRESENTATIVE, ACCOUNTANT", () => {
+    for (const key of ["invoices.view", "invoices.issue"] as const) {
+      for (const roleKey of ["ADMIN", "MANAGER", "SALES_REPRESENTATIVE", "ACCOUNTANT"]) {
+        const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+        expect(role.permissions, `${roleKey} should have "${key}"`).toContain(key);
+      }
+      for (const roleKey of ["WAREHOUSE", "CUSTOMER"]) {
+        const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+        expect(role.permissions, `${roleKey} should NOT have "${key}"`).not.toContain(key);
+      }
+    }
+  });
+
+  it("invoices.cancel (voiding a fiscal document) is stricter than invoices.issue — SALES_REPRESENTATIVE may register but not void", () => {
+    for (const roleKey of ["ADMIN", "MANAGER", "ACCOUNTANT"]) {
+      const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+      expect(role.permissions, `${roleKey} should have "invoices.cancel"`).toContain(
+        "invoices.cancel",
+      );
+    }
+    for (const roleKey of ["SALES_REPRESENTATIVE", "WAREHOUSE", "CUSTOMER"]) {
+      const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+      expect(role.permissions, `${roleKey} should NOT have "invoices.cancel"`).not.toContain(
+        "invoices.cancel",
+      );
+    }
+  });
+
+  it("CUSTOMER receives zero fiscal/invoicing permissions", () => {
+    const customer = ROLE_DEFINITIONS.find((role) => role.key === "CUSTOMER")!;
+    expect(customer.permissions).not.toContain("invoices.view");
+    expect(customer.permissions).not.toContain("invoices.issue");
+    expect(customer.permissions).not.toContain("invoices.cancel");
+  });
+
+  // Phase — ARCA Fiscal Readiness + Tax Model. The admin fiscal-settings
+  // screen (Configuración → Datos fiscales, and the "Facturación
+  // electrónica — ARCA" readiness card) is gated by settings.view/manage —
+  // CUSTOMER must never reach either.
+  it("CUSTOMER receives zero admin settings permissions — never reaches Configuración → Datos fiscales", () => {
+    const customer = ROLE_DEFINITIONS.find((role) => role.key === "CUSTOMER")!;
+    expect(customer.permissions).not.toContain("settings.view");
+    expect(customer.permissions).not.toContain("settings.manage");
+  });
+
+  // Phase — Sales Consultation & Commercial Reporting. sales.view is the
+  // ONE permission that gates /admin/sales/consultation (the same
+  // permission the existing /admin/sales list already uses — this phase
+  // deliberately reused it rather than introducing a new one; see this
+  // phase's own final report). Confirms the exact role matrix the spec
+  // requires: ADMIN (full), MANAGER, SALES_REPRESENTATIVE and ACCOUNTANT
+  // can consult sales history; WAREHOUSE and CUSTOMER cannot.
+  it("sales.view is granted to ADMIN, MANAGER, SALES_REPRESENTATIVE, ACCOUNTANT — never WAREHOUSE or CUSTOMER", () => {
+    for (const roleKey of ["ADMIN", "MANAGER", "SALES_REPRESENTATIVE", "ACCOUNTANT"]) {
+      const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+      expect(role.permissions, `${roleKey} should have "sales.view"`).toContain("sales.view");
+    }
+    for (const roleKey of ["WAREHOUSE", "CUSTOMER"]) {
+      const role = ROLE_DEFINITIONS.find((r) => r.key === roleKey)!;
+      expect(role.permissions, `${roleKey} should NOT have "sales.view"`).not.toContain("sales.view");
+    }
+  });
 });

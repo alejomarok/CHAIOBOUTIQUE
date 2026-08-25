@@ -2,62 +2,17 @@ import "server-only";
 
 import { cache } from "react";
 
-import { prisma } from "@/lib/db";
-import { env } from "@/lib/env";
-import { recordAuditLog } from "@/modules/audit";
+import { getStoreConfiguration as getStoreConfigurationCore } from "./service-core";
 
-const STORE_CONFIGURATION_ID = "main";
-
-// Upserts the single-row store configuration, seeding it from env defaults
-// on first read so the settings page always has something to render.
-// cache()'d per request: this single-row, rarely-changing config is read by
-// nearly every cart/pricing operation — several calls in the same request
-// (e.g. mergeAnonymousCartIntoCustomerCart's own call chain) previously each
-// paid a full upsert round trip against the remote database (~1.1s
-// measured); memoizing within the request means only the first pays it.
-export const getStoreConfiguration = cache(async () => {
-  return prisma.storeConfiguration.upsert({
-    where: { id: STORE_CONFIGURATION_ID },
-    update: {},
-    create: {
-      id: STORE_CONFIGURATION_ID,
-      name: env.STORE_NAME,
-      currency: env.STORE_CURRENCY,
-      locale: env.STORE_LOCALE,
-      timezone: env.STORE_TIMEZONE,
-    },
-  });
-});
-
-export interface UpdateStoreConfigurationInput {
-  name: string;
-  currency: string;
-  locale: string;
-  timezone: string;
-}
-
-export async function updateStoreConfiguration(
-  input: UpdateStoreConfigurationInput,
-  actorId: string,
-): Promise<void> {
-  const before = await getStoreConfiguration();
-
-  await prisma.storeConfiguration.update({
-    where: { id: STORE_CONFIGURATION_ID },
-    data: input,
-  });
-
-  await recordAuditLog({
-    userId: actorId,
-    action: "store_settings.updated",
-    entityType: "StoreConfiguration",
-    entityId: STORE_CONFIGURATION_ID,
-    previousValue: {
-      name: before.name,
-      currency: before.currency,
-      locale: before.locale,
-      timezone: before.timezone,
-    },
-    newValue: { ...input },
-  });
-}
+// The actual implementations live in service-core.ts, which has no
+// "server-only" import so it stays importable from a plain Node context —
+// see that file and ARCHITECTURE.md. This wrapper adds back the
+// request-level cache() memoization the old single-file version had: this
+// single-row, rarely-changing config is read by nearly every cart/pricing/
+// checkout operation, and several calls can happen in the same request.
+// Named re-exports (not `export *`) specifically so this cached
+// getStoreConfiguration can shadow the uncached one from service-core
+// without a duplicate-export conflict.
+export type { UpdateStoreConfigurationInput } from "./service-core";
+export { updateStoreConfiguration } from "./service-core";
+export const getStoreConfiguration = cache(getStoreConfigurationCore);

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import type { RecipientVatCondition } from "@/generated/prisma/client";
 import { requirePermission } from "@/modules/auth";
 import {
   activateCustomer,
@@ -43,6 +44,9 @@ const customerFieldsSchema = z
     documentNumber: z.string().optional(),
     taxId: z.string().optional(),
     taxCondition: z.string().optional(),
+    vatCondition: z
+      .enum(["RESPONSABLE_INSCRIPTO", "MONOTRIBUTISTA", "EXENTO", "CONSUMIDOR_FINAL", "IVA_NO_ALCANZADO", ""])
+      .optional(),
     email: z.string().optional(),
     phone: z.string().optional(),
     notes: z.string().optional(),
@@ -119,6 +123,7 @@ export async function createCustomerAction(
         documentNumber: data.documentNumber || null,
         taxId: data.taxId || null,
         taxCondition: data.taxCondition || null,
+        vatCondition: (data.vatCondition || null) as RecipientVatCondition | null,
         email: data.email || null,
         phone: data.phone || null,
         notes: data.notes || null,
@@ -157,6 +162,7 @@ export async function updateCustomerAction(
         documentNumber: data.documentNumber || null,
         taxId: data.taxId || null,
         taxCondition: data.taxCondition || null,
+        vatCondition: (data.vatCondition || null) as RecipientVatCondition | null,
         email: data.email || null,
         phone: data.phone || null,
         notes: data.notes || null,

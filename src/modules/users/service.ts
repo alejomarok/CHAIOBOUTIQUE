@@ -6,9 +6,16 @@ import { recordAuditLog } from "@/modules/audit";
 import { revokeUserSessions } from "@/modules/auth";
 import { assignRoleToUser } from "@/modules/roles/service";
 
+// Excludes the seeded system account (isSystemAccount — see
+// modules/roles/seed-core.ts's seedSystemAccount) from the admin roster:
+// it has no password/credential, is never assignable a role, and would
+// only ever confuse an admin browsing real staff accounts. It still exists
+// as a real User row (referenced as createdById on webhook-originated
+// Sale/SalePayment rows — see modules/orders/order-core.ts's
+// finalizePaidOrder), just never listed here.
 export async function listUsers() {
   return prisma.user.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, isSystemAccount: false },
     include: { userRoles: { include: { role: true } } },
     orderBy: { createdAt: "desc" },
   });

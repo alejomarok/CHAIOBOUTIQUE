@@ -27,10 +27,13 @@ import {
 import { PERMISSIONS } from "@/modules/permissions/catalog";
 import { ROLE_DEFINITIONS } from "@/modules/roles/catalog";
 import {
+  printSystemAccountSeedSummary,
   seedPermissions,
   seedRolesAndAssignments,
   seedStoreConfiguration,
+  seedSystemAccount,
 } from "@/modules/roles/seed-core";
+import { printBranchSeedSummary, seedStoreBranches } from "@/modules/store-branches/seed-core";
 import { printWarehouseSeedSummary, seedDefaultWarehouse } from "@/modules/warehouses/seed-core";
 
 async function seedInitialAdmin() {
@@ -98,11 +101,17 @@ async function main() {
 
   await seedInitialAdmin();
 
+  const systemAccountSummary = await seedSystemAccount();
+  printSystemAccountSeedSummary(systemAccountSummary);
+
   const sizeSeedSummary = await seedDefaultSizeGroups();
   printSizeSeedSummary(sizeSeedSummary);
 
   const warehouseSeedSummary = await seedDefaultWarehouse();
   printWarehouseSeedSummary(warehouseSeedSummary);
+
+  const branchSeedSummary = await seedStoreBranches();
+  printBranchSeedSummary(branchSeedSummary);
 
   const consumidorFinalSummary = await seedConsumidorFinal();
   printConsumidorFinalSeedSummary(consumidorFinalSummary);

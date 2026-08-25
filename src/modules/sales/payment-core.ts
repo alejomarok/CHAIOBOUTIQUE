@@ -152,8 +152,15 @@ export interface RegisterSalePaymentInput {
   idempotencyKey: string;
 }
 
-// Registers one payment against a CONFIRMED sale, recomputing Sale.
-// paidAmount/paymentStatus transactionally in the same call.
+// The transaction-aware core — Phase: Mercado Pago Checkout Pro
+// integration. Extracted so modules/orders/order-core.ts's finalizePaidOrder
+// can register the online payment through this EXACT SAME logic (overpayment
+// guard, aggregate recompute, audit log) inside its own already-open
+// transaction, never a second, parallel payment-registration code path —
+// see this integration's explicit "do not implement a parallel payment-
+// status system" requirement. registerSalePayment below is now a thin
+// wrapper opening its own transaction, byte-identical behavior to before
+// this split.
 //
 // Concurrency: this function's FIRST statement takes a `SELECT ... FOR
 // UPDATE` row lock on the parent Sale — every payment mutation (this
@@ -179,74 +186,80 @@ export interface RegisterSalePaymentInput {
 //      ever succeed once between them; the loser's transaction is rolled
 //      back in full (the payment row it inserted never persists) and it
 //      receives PaymentExceedsRemainingBalanceError.
-export async function registerSalePayment(
+export async function registerSalePaymentWithinTransaction(
+  tx: Prisma.TransactionClient,
   input: RegisterSalePaymentInput,
   actorId: string,
 ): Promise<SalePayment> {
   if (input.amount <= 0n) throw new InvalidPaymentAmountError();
 
-  return prisma.$transaction(async (tx) => {
-    const [locked] = await tx.$queryRaw<SaleLockRow[]>`
-      SELECT id, status, "totalAmount" FROM sale WHERE id = ${input.saleId} FOR UPDATE
-    `;
-    if (!locked) throw new SaleNotFoundError();
-    if (locked.status === "CANCELLED") throw new SaleCancelledCannotAcceptPaymentsError();
-    if (locked.status === "DRAFT") throw new SaleNotConfirmedError();
+  const [locked] = await tx.$queryRaw<SaleLockRow[]>`
+    SELECT id, status, "totalAmount" FROM sale WHERE id = ${input.saleId} FOR UPDATE
+  `;
+  if (!locked) throw new SaleNotFoundError();
+  if (locked.status === "CANCELLED") throw new SaleCancelledCannotAcceptPaymentsError();
+  if (locked.status === "DRAFT") throw new SaleNotConfirmedError();
 
-    let payment: SalePayment;
-    try {
-      payment = await tx.salePayment.create({
-        data: {
-          saleId: input.saleId,
-          method: input.method,
-          amount: input.amount,
-          reference: input.reference || null,
-          notes: input.notes || null,
-          paidAt: input.paidAt ?? new Date(),
-          createdById: actorId,
-          idempotencyKey: input.idempotencyKey,
-        },
-      });
-    } catch (error) {
-      if (isPaymentIdempotencyConflict(error)) throw new DuplicatePaymentSubmissionError();
-      throw error;
-    }
-
-    const activeSum = await tx.salePayment.aggregate({
-      where: { saleId: input.saleId, status: "ACTIVE" },
-      _sum: { amount: true },
-    });
-    const paidAmount = activeSum._sum.amount ?? 0n;
-
-    if (paidAmount > locked.totalAmount) {
-      // Rolls back the whole transaction — the just-inserted payment row
-      // included. An overpayment attempt leaves zero trace, per this
-      // phase's explicit requirement.
-      const alreadyPaid = paidAmount - input.amount;
-      throw new PaymentExceedsRemainingBalanceError(locked.totalAmount - alreadyPaid, input.amount);
-    }
-
-    const paymentStatus = computeSalePaymentStatus(locked.totalAmount, paidAmount);
-    await tx.sale.update({ where: { id: input.saleId }, data: { paidAmount, paymentStatus } });
-
-    await recordAuditLog(
-      {
-        userId: actorId,
-        action: "sale_payment.registered",
-        entityType: "SalePayment",
-        entityId: payment.id,
-        newValue: {
-          method: payment.method,
-          amount: payment.amount.toString(),
-          reference: payment.reference,
-        },
-        metadata: { saleId: input.saleId, paidAmount: paidAmount.toString(), paymentStatus },
+  let payment: SalePayment;
+  try {
+    payment = await tx.salePayment.create({
+      data: {
+        saleId: input.saleId,
+        method: input.method,
+        amount: input.amount,
+        reference: input.reference || null,
+        notes: input.notes || null,
+        paidAt: input.paidAt ?? new Date(),
+        createdById: actorId,
+        idempotencyKey: input.idempotencyKey,
       },
-      tx,
-    );
+    });
+  } catch (error) {
+    if (isPaymentIdempotencyConflict(error)) throw new DuplicatePaymentSubmissionError();
+    throw error;
+  }
 
-    return payment;
+  const activeSum = await tx.salePayment.aggregate({
+    where: { saleId: input.saleId, status: "ACTIVE" },
+    _sum: { amount: true },
   });
+  const paidAmount = activeSum._sum.amount ?? 0n;
+
+  if (paidAmount > locked.totalAmount) {
+    // Rolls back the whole transaction — the just-inserted payment row
+    // included. An overpayment attempt leaves zero trace, per this
+    // phase's explicit requirement.
+    const alreadyPaid = paidAmount - input.amount;
+    throw new PaymentExceedsRemainingBalanceError(locked.totalAmount - alreadyPaid, input.amount);
+  }
+
+  const paymentStatus = computeSalePaymentStatus(locked.totalAmount, paidAmount);
+  await tx.sale.update({ where: { id: input.saleId }, data: { paidAmount, paymentStatus } });
+
+  await recordAuditLog(
+    {
+      userId: actorId,
+      action: "sale_payment.registered",
+      entityType: "SalePayment",
+      entityId: payment.id,
+      newValue: {
+        method: payment.method,
+        amount: payment.amount.toString(),
+        reference: payment.reference,
+      },
+      metadata: { saleId: input.saleId, paidAmount: paidAmount.toString(), paymentStatus },
+    },
+    tx,
+  );
+
+  return payment;
+}
+
+export async function registerSalePayment(
+  input: RegisterSalePaymentInput,
+  actorId: string,
+): Promise<SalePayment> {
+  return prisma.$transaction((tx) => registerSalePaymentWithinTransaction(tx, input, actorId));
 }
 
 // Voids an ACTIVE payment — the original row is never deleted or rewritten,

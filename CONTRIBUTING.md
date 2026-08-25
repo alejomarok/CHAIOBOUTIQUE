@@ -6,10 +6,17 @@
 npm install
 cp .env.example .env   # fill in real values, see DATABASE.md
 npx prisma generate
-npx prisma migrate dev
-npm run prisma:seed
+npm run db:dev:up        # local Postgres for development (postgres-dev)
+npm run db:dev:migrate
+npm run db:dev:seed
 npm run dev
 ```
+
+`npm run dev` always connects to postgres-dev, never the real Supabase database — see
+[DATABASE.md](./DATABASE.md#local-development-database-postgres-dev). Don't reach for
+`npx prisma migrate dev`/`npm run prisma:seed` (no wrapper) or `npm run dev:remote` for normal
+local development — those intentionally target whatever `DATABASE_URL` is raw in `.env`
+(Supabase), see that same section.
 
 Optional, for integration tests / password-reset testing:
 

@@ -46,6 +46,7 @@ export default async function EditCustomerPage({
               documentNumber: customer.documentNumber ?? "",
               taxId: customer.taxId ?? "",
               taxCondition: customer.taxCondition ?? "",
+              vatCondition: customer.vatCondition ?? "",
               email: customer.email ?? "",
               phone: customer.phone ?? "",
               notes: customer.notes ?? "",

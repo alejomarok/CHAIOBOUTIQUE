@@ -1,4 +1,4 @@
-import type { Customer, CustomerAddress, CustomerType, Prisma } from "@/generated/prisma/client";
+import type { Customer, CustomerAddress, CustomerType, Prisma, RecipientVatCondition } from "@/generated/prisma/client";
 import { Prisma as PrismaRuntime } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db-core";
 import { recordAuditLog } from "@/modules/audit/index-core";
@@ -176,6 +176,10 @@ export interface CreateCustomerInput {
   documentNumber?: string | null;
   taxId?: string | null;
   taxCondition?: string | null;
+  // Phase — ARCA Fiscal Readiness + Tax Model. See Customer.vatCondition's
+  // own schema comment for why this is a NEW field alongside taxCondition,
+  // not a replacement of it.
+  vatCondition?: RecipientVatCondition | null;
   email?: string | null;
   phone?: string | null;
   notes?: string | null;
@@ -197,11 +201,20 @@ export interface PossibleDuplicateMatch {
 // returns candidates for a human to review via "Ver cliente existente" /
 // "Continuar de todos modos" in the admin UI. excludeCustomerId lets the
 // edit form run the same check without a customer always "matching itself".
-export async function findPossibleDuplicateCustomers(input: {
-  email?: string | null;
-  phone?: string | null;
-  excludeCustomerId?: string;
-}): Promise<PossibleDuplicateMatch[]> {
+// `client` accepts an open Prisma transaction client and defaults to the
+// plain global `prisma` — same convention as modules/audit/index-core.ts's
+// recordAuditLog. Phase: Mercado Pago Checkout Pro integration — needed so
+// modules/orders/order-core.ts's finalizePaidOrder can run this duplicate
+// check against the SAME transaction it resolves a guest Order's Customer
+// within, never a second, separately-committed connection.
+export async function findPossibleDuplicateCustomers(
+  input: {
+    email?: string | null;
+    phone?: string | null;
+    excludeCustomerId?: string;
+  },
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<PossibleDuplicateMatch[]> {
   const email = normalizeEmail(input.email);
   const phone = normalizePhone(input.phone);
   if (!email && !phone) return [];
@@ -210,7 +223,7 @@ export async function findPossibleDuplicateCustomers(input: {
   if (email) orConditions.push({ email });
   if (phone) orConditions.push({ phone });
 
-  const candidates = await prisma.customer.findMany({
+  const candidates = await client.customer.findMany({
     where: {
       OR: orConditions,
       ...(input.excludeCustomerId ? { id: { not: input.excludeCustomerId } } : {}),
@@ -253,13 +266,16 @@ export type CreateCustomerResult =
 // create the row. A STRONG identifier collision (exact document+type or
 // exact CUIT match) is never something `confirmed` can bypass — it's a real
 // DB unique constraint, translated into a friendly, specific error instead.
+// `client` — same transaction-or-global-prisma convention as
+// findPossibleDuplicateCustomers above; see that function's own comment.
 export async function createCustomer(
   input: CreateCustomerInput,
   actorId: string,
   options: { confirmed?: boolean } = {},
+  client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<CreateCustomerResult> {
   if (!options.confirmed) {
-    const matches = await findPossibleDuplicateCustomers({ email: input.email, phone: input.phone });
+    const matches = await findPossibleDuplicateCustomers({ email: input.email, phone: input.phone }, client);
     if (matches.length > 0) {
       return { status: "possible_duplicates", matches };
     }
@@ -277,9 +293,9 @@ export async function createCustomer(
   const taxIdNormalized = normalizeStrongIdentifier(input.taxId);
 
   try {
-    const customer = await prisma.customer.create({
+    const customer = await client.customer.create({
       data: {
-        code: await generateCustomerRecordCode(prisma),
+        code: await generateCustomerRecordCode(client),
         type: input.type,
         firstName: isPerson ? (input.firstName ?? null) : null,
         lastName: isPerson ? (input.lastName ?? null) : null,
@@ -290,6 +306,7 @@ export async function createCustomer(
         taxId: input.taxId || null,
         taxIdNormalized,
         taxCondition: input.taxCondition || null,
+        vatCondition: input.vatCondition || null,
         email: normalizeEmail(input.email),
         phone: normalizePhone(input.phone),
         notes: input.notes || null,
@@ -297,13 +314,16 @@ export async function createCustomer(
       },
     });
 
-    await recordAuditLog({
-      userId: actorId,
-      action: "customer.created",
-      entityType: "Customer",
-      entityId: customer.id,
-      newValue: { code: customer.code, type: customer.type },
-    });
+    await recordAuditLog(
+      {
+        userId: actorId,
+        action: "customer.created",
+        entityType: "Customer",
+        entityId: customer.id,
+        newValue: { code: customer.code, type: customer.type },
+      },
+      client,
+    );
 
     return { status: "created", customer };
   } catch (error) {
@@ -326,6 +346,7 @@ export interface UpdateCustomerInput {
   documentNumber?: string | null;
   taxId?: string | null;
   taxCondition?: string | null;
+  vatCondition?: RecipientVatCondition | null;
   email?: string | null;
   phone?: string | null;
   notes?: string | null;
@@ -397,6 +418,7 @@ export async function updateCustomer(
         ...(documentNumberNormalized !== undefined ? { documentNumberNormalized } : {}),
         ...(input.taxId !== undefined ? { taxId: input.taxId || null, taxIdNormalized } : {}),
         ...(input.taxCondition !== undefined ? { taxCondition: input.taxCondition || null } : {}),
+        ...(input.vatCondition !== undefined ? { vatCondition: input.vatCondition || null } : {}),
         ...(input.email !== undefined ? { email: normalizeEmail(input.email) } : {}),
         ...(input.phone !== undefined ? { phone: normalizePhone(input.phone) } : {}),
         ...(input.notes !== undefined ? { notes: input.notes || null } : {}),
@@ -472,6 +494,17 @@ export async function getCustomerById(id: string) {
 // row without hard-coding its id/code anywhere outside this lookup.
 export async function getSystemDefaultCustomer() {
   return prisma.customer.findFirst({ where: { isSystemDefault: true } });
+}
+
+// Phase — Online Orders & Checkout foundation. The bridge an authenticated
+// CUSTOMER checkout uses to resolve its commercial Customer identity — every
+// self-registered account already gets one automatically (see
+// createCustomerForRegisteredUser above), so this is expected to find a row
+// for any real CUSTOMER-role session; returns null rather than throwing so
+// the caller (checkout) can decide how to handle the unexpected case
+// instead of a hard crash.
+export async function getCustomerByLinkedUserId(userId: string): Promise<Customer | null> {
+  return prisma.customer.findUnique({ where: { linkedUserId: userId } });
 }
 
 export interface ListCustomersInput {

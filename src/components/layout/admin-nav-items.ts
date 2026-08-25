@@ -23,7 +23,9 @@ export type AdminIconName =
   | "key-round"
   | "settings"
   | "contact"
-  | "shopping-cart";
+  | "shopping-cart"
+  | "clipboard-list"
+  | "bar-chart-3";
 
 export interface AdminNavItem {
   href: string;
@@ -102,6 +104,13 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { href: "/admin/customers", label: "Clientes", iconName: "contact", permission: "customers.view" },
       { href: "/admin/sales", label: "Ventas", iconName: "shopping-cart", permission: "sales.view" },
+      { href: "/admin/orders", label: "Pedidos", iconName: "clipboard-list", permission: "orders.view" },
+      {
+        href: "/admin/sales/consultation",
+        label: "Consultas de ventas",
+        iconName: "bar-chart-3",
+        permission: "sales.view",
+      },
     ],
   },
   {

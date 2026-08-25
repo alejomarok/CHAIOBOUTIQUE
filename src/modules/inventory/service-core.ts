@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/db-core";
 import { timed } from "@/lib/timing";
 import { recordAuditLog } from "@/modules/audit/index-core";
+import { Prisma } from "@/generated/prisma/client";
 import type {
   InventoryMovement,
   InventoryOperation,
   InventoryOperationType,
   MovementType,
-  Prisma,
 } from "@/generated/prisma/client";
 
 import {
@@ -132,12 +132,28 @@ export async function applyInventoryOperation(
     // round trip, Postgres's native per-row lock for the statement's
     // duration, and the "never go negative" guard directly in the WHERE
     // clause. See docs/adr/0002-inventory-balance-projection.md.
+    //
+    // Phase — Online Orders & Checkout foundation. A SALE movement's guard
+    // is stricter than every other movement type: it must never go below
+    // ZERO AVAILABLE-TO-SELL (quantity - reservedQuantity), not merely
+    // never below zero PHYSICAL stock — otherwise a POS sale could consume
+    // units already committed to an ACTIVE online-Order reservation (see
+    // InventoryBalance.reservedQuantity's schema comment and this phase's
+    // explicit "POS must not oversell into a reservation" requirement).
+    // Every other movement type (adjustments, transfers, imports,
+    // SALE_CANCELLATION's restoring +delta, ...) keeps the exact original
+    // guard — byte-identical behavior, not just "unaffected in practice".
+    const guard =
+      movementInput.movementType === "SALE"
+        ? Prisma.sql`quantity - "reservedQuantity" + ${movementInput.quantityDelta} >= 0`
+        : Prisma.sql`quantity + ${movementInput.quantityDelta} >= 0`;
+
     const rows = await tx.$queryRaw<{ newQuantity: number }[]>`
       UPDATE inventory_balance
       SET quantity = quantity + ${movementInput.quantityDelta}, "updatedAt" = now()
       WHERE "variantId" = ${movementInput.variantId}
         AND "warehouseId" = ${movementInput.warehouseId}
-        AND quantity + ${movementInput.quantityDelta} >= 0
+        AND ${guard}
       RETURNING quantity AS "newQuantity"
     `;
 
@@ -315,6 +331,48 @@ export async function getInventoryBalance(variantId: string, warehouseId: string
   return prisma.inventoryBalance.findUnique({
     where: { variantId_warehouseId: { variantId, warehouseId } },
   });
+}
+
+// =============================================================================
+// Phase — Online Orders & Checkout foundation. "Available to sell" —
+// InventoryBalance.quantity - InventoryBalance.reservedQuantity, floored at
+// 0 for display (should never actually go negative given
+// applyInventoryOperation's/reserveStock's guards, but a read path must
+// never surface a negative number even in the face of an unforeseen bug
+// elsewhere). This is THE ONE formula every availability-sensitive read
+// path uses — cart validation (modules/cart/service.ts), public product
+// stock status (modules/products/public-queries.ts), checkout reservation
+// creation (modules/inventory/reservation-core.ts), and the POS sale
+// builder's "Disponible: N" (modules/sales/sale-core.ts) — never a second,
+// independently-computed notion of "available".
+// =============================================================================
+
+export async function getAvailableToSell(variantId: string, warehouseId: string): Promise<number> {
+  const balance = await getInventoryBalance(variantId, warehouseId);
+  if (!balance) return 0;
+  const available = balance.quantity - balance.reservedQuantity;
+  return available > 0 ? available : 0;
+}
+
+// Batch equivalent of getAvailableToSell, scoped to ONE warehouse (every
+// caller of this — cart, checkout, POS — already only ever cares about a
+// single fulfillment warehouse at a time; see getDefaultWarehouse's own
+// "single warehouse public stock reads from" posture) — one query
+// regardless of variant count, never N+1.
+export async function getAvailableToSellForVariants(
+  variantIds: string[],
+  warehouseId: string,
+): Promise<Map<string, number>> {
+  if (variantIds.length === 0) return new Map();
+  const balances = await prisma.inventoryBalance.findMany({
+    where: { warehouseId, variantId: { in: variantIds } },
+  });
+  return new Map(
+    balances.map((balance) => {
+      const available = balance.quantity - balance.reservedQuantity;
+      return [balance.variantId, available > 0 ? available : 0];
+    }),
+  );
 }
 
 // Total stock across every warehouse for a set of variants — used by the

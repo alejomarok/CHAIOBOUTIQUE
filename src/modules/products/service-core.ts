@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db-core";
 import { ensureUniqueSlug } from "@/lib/slug";
 import { timed } from "@/lib/timing";
 import { recordAuditLog } from "@/modules/audit/index-core";
-import type { Product, ProductStatus, ProductVariant } from "@/generated/prisma/client";
+import type { FiscalTaxCategory, Product, ProductStatus, ProductVariant } from "@/generated/prisma/client";
 
 import { getEffectivePrice, validateCompareAtPrice } from "./pricing";
 import { findDuplicateCombinationsInBatch, type VariantAxisCombination } from "./variant-matrix";
@@ -156,6 +156,11 @@ export interface CreateProductInput {
   compareAtPriceAmount?: bigint | null;
   referenceCostAmount?: bigint | null;
   minimumStockThreshold?: number | null;
+  // Phase — ARCA Fiscal Readiness correction pass. Explicit override of
+  // StoreConfiguration.defaultTaxCategory — see Product.taxCategory's own
+  // schema comment. null/omitted means "use the store default"; never
+  // guessed or defaulted to a specific rate here.
+  taxCategory?: FiscalTaxCategory | null;
 }
 
 async function resolveDefaultSizeGroupId(categoryId: string | null): Promise<string | null> {
@@ -196,6 +201,7 @@ export async function createProduct(input: CreateProductInput, actorId: string):
       compareAtPriceAmount: input.compareAtPriceAmount ?? null,
       referenceCostAmount: input.referenceCostAmount ?? null,
       minimumStockThreshold: input.minimumStockThreshold ?? null,
+      taxCategory: input.taxCategory ?? null,
       createdById: actorId,
       updatedById: actorId,
     },
@@ -231,6 +237,8 @@ export interface UpdateProductInput {
   compareAtPriceAmount?: bigint | null;
   referenceCostAmount?: bigint | null;
   minimumStockThreshold?: number | null;
+  // See CreateProductInput's identical field comment.
+  taxCategory?: FiscalTaxCategory | null;
 }
 
 export async function updateProduct(id: string, input: UpdateProductInput, actorId: string) {

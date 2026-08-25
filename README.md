@@ -38,12 +38,16 @@ npm install
 cp .env.example .env
 # fill in .env — see "Environment variables" below
 npx prisma generate
-npx prisma migrate dev
-npm run prisma:seed
+npm run db:dev:up        # start a local Postgres (postgres-dev, via Docker)
+npm run db:dev:migrate   # apply migrations to it
+npm run db:dev:seed      # roles, permissions, store config
 npm run dev
 ```
 
-The app runs at http://localhost:3000.
+The app runs at http://localhost:3000. **`npm run dev` always connects to the local `postgres-dev`
+database, never the real Supabase database** — see
+[DATABASE.md](./DATABASE.md#local-development-database-postgres-dev) for why, and how to reach
+Supabase deliberately (`npm run dev:remote -- --yes`) if you ever genuinely need to.
 
 ### Environment variables
 
@@ -51,47 +55,63 @@ Copy `.env.example` to `.env` and fill in real values. Full explanation of each 
 in [DATABASE.md](./DATABASE.md) (database), [SECURITY.md](./SECURITY.md) (auth/secrets), and
 [INTEGRATIONS.md](./INTEGRATIONS.md) (email/storage). Never commit `.env`.
 
-### Local test database + Mailpit (optional, via Docker)
+### Local Postgres + Mailpit (via Docker)
 
-Integration tests and the password-reset email flow need services that are **not** your Supabase
-dev database:
+`docker-compose.yml` provides every local-only service this project uses — **not** the real
+Supabase database, which is only ever reached deliberately (see above):
 
 ```bash
-docker compose up -d
+docker compose up -d              # everything: postgres-dev, postgres-test, Mailpit
+# or start just one service, e.g.:
+npm run db:dev:up                 # postgres-dev only
 ```
 
 This starts:
 
-- A local Postgres on `localhost:56032` — set `TEST_DATABASE_URL` in `.env` to
-  `postgresql://chaioboutique_test:chaioboutique_test@localhost:56032/chaioboutique_test`
-- Mailpit (SMTP on `localhost:1025`, web UI at http://localhost:8025) — password-reset emails
+- **postgres-dev** on `localhost:56033` (`DEV_DATABASE_URL`) — used by `npm run dev`, see
+  [DATABASE.md](./DATABASE.md#local-development-database-postgres-dev).
+- **postgres-test** on `localhost:56032` (`TEST_DATABASE_URL`) — used only by
+  `npm run test:integration`/`test:migrations`/`test:e2e`, never by `npm run dev`.
+- **Mailpit** (SMTP on `localhost:1025`, web UI at http://localhost:8025) — password-reset emails
   land there in dev, since no production email provider is wired up yet.
 
 ## Available scripts
 
-| Command                           | Purpose                                                    |
-| --------------------------------- | ---------------------------------------------------------- |
-| `npm run dev`                     | Start the dev server                                       |
-| `npm run build`                   | Production build                                           |
-| `npm run start`                   | Start the production server                                |
-| `npm run lint`                    | ESLint                                                     |
-| `npm run format` / `format:check` | Prettier write / check                                     |
-| `npm run typecheck`               | `tsc --noEmit`                                             |
-| `npm run prisma:generate`         | Generate the Prisma client                                 |
-| `npm run prisma:migrate`          | `prisma migrate dev` (against `DATABASE_URL`/`DIRECT_URL`) |
-| `npm run prisma:migrate:deploy`   | `prisma migrate deploy`                                    |
-| `npm run prisma:seed`             | Run the production-safe seed                               |
-| `npm run db:test:migrate`         | Apply migrations to `TEST_DATABASE_URL`                    |
-| `npm run test` / `test:unit`      | Unit tests (no database)                                   |
-| `npm run test:integration`        | Integration tests, forced onto `TEST_DATABASE_URL`         |
-| `npm run test:e2e`                | Playwright smoke tests                                     |
+| Command                           | Purpose                                                                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                     | Start the dev server — **always postgres-dev**, fail-closed, never Supabase                                                                  |
+| `npm run dev:local`               | Alias for `npm run dev`                                                                                                                       |
+| `npm run dev:remote -- --yes`     | Start the dev server against the **real Supabase database**, deliberately                                                                    |
+| `npm run build`                   | Production build                                                                                                                              |
+| `npm run start`                   | Start the production server                                                                                                                   |
+| `npm run lint`                    | ESLint                                                                                                                                         |
+| `npm run format` / `format:check` | Prettier write / check                                                                                                                        |
+| `npm run typecheck`               | `tsc --noEmit`                                                                                                                                 |
+| `npm run prisma:generate`         | Generate the Prisma client                                                                                                                    |
+| `npm run prisma:migrate`          | `prisma migrate dev` against raw `DATABASE_URL`/`DIRECT_URL` — not for local dev, see [DATABASE.md](./DATABASE.md#commands-that-intentionally-still-use-the-raw-database_url) |
+| `npm run prisma:migrate:deploy`   | `prisma migrate deploy` — same caveat as above                                                                                                |
+| `npm run prisma:seed`             | Run the production-safe seed (against whatever `DATABASE_URL` currently is)                                                                   |
+| `npm run db:dev:up`               | Start the postgres-dev Docker container                                                                                                       |
+| `npm run db:dev:migrate`          | Apply migrations to `DEV_DATABASE_URL` (postgres-dev)                                                                                          |
+| `npm run db:dev:seed`             | Run the seed against `DEV_DATABASE_URL` (postgres-dev)                                                                                         |
+| `npm run db:test:migrate`         | Apply migrations to `TEST_DATABASE_URL`                                                                                                        |
+| `npm run test` / `test:unit`      | Unit tests (no database)                                                                                                                       |
+| `npm run test:integration`        | Integration tests, forced onto `TEST_DATABASE_URL`                                                                                             |
+| `npm run test:e2e`                | Playwright smoke tests, forced onto `TEST_DATABASE_URL`                                                                                        |
 
 ## Migrations and seeding
 
+For local development, against postgres-dev:
+
 ```bash
-npx prisma migrate dev       # applies migrations to DATABASE_URL/DIRECT_URL (dev)
-npm run prisma:seed          # roles, permissions, store config, optional initial admin
+npm run db:dev:migrate       # applies migrations to DEV_DATABASE_URL (postgres-dev)
+npm run db:dev:seed          # roles, permissions, store config, optional initial admin
 ```
+
+`npx prisma migrate dev`/`npm run prisma:seed` (no wrapper) apply to whatever `DATABASE_URL` is
+raw in `.env` (Supabase, by default) — see
+[DATABASE.md](./DATABASE.md#commands-that-intentionally-still-use-the-raw-database_url). Not
+needed for local development; only for a deliberate real migration/seed against Supabase.
 
 The seed is idempotent and production-safe — see [DATABASE.md](./DATABASE.md#seed-strategy) for
 exactly what it creates (and what it deliberately never creates).

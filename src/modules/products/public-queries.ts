@@ -2,6 +2,7 @@ import "server-only";
 
 import { minorUnitsToDisplay } from "@/lib/money";
 import { prisma } from "@/lib/db";
+import { getAvailableToSellForVariants } from "@/modules/inventory/service";
 import { getProductImagePublicUrl } from "@/modules/products/product-images";
 import { getDefaultWarehouse } from "@/modules/warehouses/service";
 
@@ -62,9 +63,24 @@ export async function listPublicProducts(filters: ListPublicProductsFilters = {}
           ? { some: { isActive: true, sizeOptionId: filters.sizeOptionId, colorId: filters.colorId } }
           : undefined,
     },
-    include: {
-      variants: { where: { isActive: true } },
-      images: { where: { isPrimary: true }, take: 1 },
+    // Explicit select, not a bare `include` — this file's own header
+    // comment already promises "never returns cost, legacySource/legacyId,
+    // internal notes..." for the DTOs it RETURNS; this scopes the actual
+    // DATABASE READ to match, so a future internal-only Product/variant
+    // column (like taxCategory) is never even fetched by the public
+    // storefront path, let alone exposed. List every field this function's
+    // own isPubliclyVisible/cheapestEffectivePrice/DTO-mapping logic below
+    // actually reads — nothing more.
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      categoryId: true,
+      defaultPriceAmount: true,
+      compareAtPriceAmount: true,
+      variants: { where: { isActive: true }, select: { isActive: true, priceAmount: true } },
+      images: { where: { isPrimary: true }, take: 1, select: { bucket: true, path: true } },
     },
     orderBy:
       filters.sort === "price_asc"
@@ -140,10 +156,36 @@ export interface PublicProductDetailDTO {
 export async function getPublicProductBySlug(slug: string): Promise<PublicProductDetailDTO | null> {
   const product = await prisma.product.findUnique({
     where: { slug },
-    include: {
+    // See listPublicProducts's identical comment — explicit select, never
+    // a bare include, so the public product-detail path never fetches
+    // internal-only fields (cost, taxCategory, legacySource, ...) in the
+    // first place.
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      shortDescription: true,
+      description: true,
+      seoTitle: true,
+      seoDescription: true,
+      status: true,
+      categoryId: true,
+      defaultPriceAmount: true,
+      compareAtPriceAmount: true,
+      minimumStockThreshold: true,
       variants: {
         where: { isActive: true },
-        include: { sizeOption: true, color: true },
+        select: {
+          id: true,
+          sku: true,
+          sizeOptionId: true,
+          colorId: true,
+          isActive: true,
+          priceAmount: true,
+          compareAtPriceAmount: true,
+          sizeOption: true,
+          color: true,
+        },
         // Size options ordered by their own sortOrder (never an
         // alphabetical sort of the label, which would put "10" before
         // "9") — see SizeOption.sortOrder's schema comment. Color has no
@@ -151,7 +193,10 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
         // stable, admin-controlled sequence rather than insertion order.
         orderBy: [{ sizeOption: { sortOrder: "asc" } }, { color: { displayOrder: "asc" } }],
       },
-      images: { orderBy: { displayOrder: "asc" } },
+      images: {
+        orderBy: { displayOrder: "asc" },
+        select: { bucket: true, path: true, altText: true, width: true, height: true, isPrimary: true },
+      },
       category: { select: { name: true } },
       brand: { select: { name: true } },
     },
@@ -159,15 +204,18 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
 
   if (!product || !isPubliclyVisible(product, product.variants)) return null;
 
+  // Phase — Online Orders & Checkout foundation. AVAILABLE-TO-SELL (on-hand
+  // minus ACTIVE reservations), never raw on-hand — see
+  // getAvailableToSellForVariants's own comment. A unit already reserved by
+  // someone else's pending Order must show as unavailable here, exactly
+  // like it does in the cart and at checkout.
   const defaultWarehouse = await getDefaultWarehouse();
-  const balances = defaultWarehouse
-    ? await prisma.inventoryBalance.findMany({
-        where: {
-          warehouseId: defaultWarehouse.id,
-          variantId: { in: product.variants.map((v) => v.id) },
-        },
-      })
-    : [];
+  const availableByVariant = defaultWarehouse
+    ? await getAvailableToSellForVariants(
+        product.variants.map((v) => v.id),
+        defaultWarehouse.id,
+      )
+    : new Map<string, number>();
 
   return {
     id: product.id,
@@ -194,8 +242,7 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
         productDefaultPriceAmount: product.defaultPriceAmount,
       })!;
       const compareAt = variant.compareAtPriceAmount ?? product.compareAtPriceAmount;
-      const balance = balances.find((b) => b.variantId === variant.id);
-      const quantity = balance?.quantity ?? 0;
+      const quantity = availableByVariant.get(variant.id) ?? 0;
 
       let stockStatus: PublicStockStatus = "IN_STOCK";
       if (quantity <= 0) stockStatus = "OUT_OF_STOCK";

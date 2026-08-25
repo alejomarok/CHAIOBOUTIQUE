@@ -43,6 +43,82 @@ project quota on every test run), and structurally impossible to point at by acc
 Supabase project/branch is an equally valid alternative if that's ever preferred — this is a
 reversible default.
 
+## Local development database (postgres-dev)
+
+**`npm run dev` always uses a local Postgres — never the real Supabase database.** This is the
+default, safe behavior; there is no separate "local mode" to remember to opt into.
+
+- **`DEV_DATABASE_URL`** — a **local** Postgres instance (the provided `docker-compose.yml` runs
+  one on `localhost:56033`, database `chaioboutique_dev`), used by `npm run dev` for everyday
+  manual development. Faster than Supabase (no network round-trip) and, just as importantly,
+  **structurally impossible to confuse with Supabase**: `scripts/with-dev-db.mjs` force-overrides
+  `DATABASE_URL`/`DIRECT_URL` to this value for the duration of the dev server, and refuses to
+  start at all if `DEV_DATABASE_URL` is unset or doesn't resolve to exactly
+  `localhost:56033/chaioboutique_dev` (`127.0.0.1` is also accepted as a host) — a misconfigured
+  `.env` can never make `npm run dev` silently fall back to Supabase.
+
+```bash
+npm run db:dev:up      # start the postgres-dev container (docker compose)
+npm run db:dev:migrate  # apply migrations to postgres-dev
+npm run db:dev:seed     # roles, permissions, store config, against postgres-dev
+npm run dev             # start Next.js — always postgres-dev, fail-closed
+```
+
+That is the whole normal developer workflow. `npm run dev:local` is a kept alias for `npm run dev`
+(identical behavior) for anyone used to the old name.
+
+### Why this exists
+
+Before this convention, `npm run dev` ran plain `next dev`, which silently used whatever
+`DATABASE_URL` was raw in `.env` — Supabase, by default (see `.env.example`). This repository
+deliberately keeps Supabase **behind** postgres-dev's applied migrations until a phase is
+explicitly authorized to catch it up (every phase's migrations are applied to postgres-dev/
+postgres-test first; Supabase is only ever updated as a separate, deliberate step — see each
+phase's own final report for a read-only `prisma migrate status` check against it). Running plain
+`npm run dev` against that lagging schema produced confusing `P2022`/`P2021` ("column/table does
+not exist") errors that looked like a broken deploy rather than what they actually were: two
+different databases at two different migration states. `npm run dev` connecting to postgres-dev
+by default eliminates that whole class of mistake — see `src/lib/db-core.ts`'s own
+`DATABASE: LOCAL DEVELOPMENT` / `DATABASE: REMOTE SUPABASE` startup banner, which makes whichever
+database a running process is actually talking to impossible to scroll past unnoticed.
+
+### Deliberate remote (Supabase) development
+
+Genuinely need to run the dev server against the real Supabase database — e.g. to reproduce an
+issue that only shows up there? Use the explicit, separately-gated command:
+
+```bash
+npm run dev:remote -- --yes
+```
+
+`scripts/with-remote-db.mjs` prints a loud `DATABASE: REMOTE SUPABASE` / `THIS COMMAND USES THE
+REAL REMOTE DATABASE` warning before doing anything else, and **refuses to start without the
+`--yes` flag** — running `npm run dev:remote` alone (a typo, muscle memory, tab-completion) does
+nothing but print the warning and exit non-zero. Unlike `with-dev-db.mjs`/`with-test-db.mjs`, this
+script does not override `DATABASE_URL`/`DIRECT_URL` — it passes through whatever `.env` already
+has, so it always reads (and can write) real production data. Use it deliberately and briefly.
+
+### Commands that intentionally still use the raw `DATABASE_URL`
+
+A few commands are **not** wrapped by `with-dev-db.mjs`, on purpose — they are the real-deploy or
+read-only-diagnostic paths, not everyday development commands:
+
+- `npm run prisma:migrate` (`prisma migrate dev`) / `npm run prisma:migrate:deploy`
+  (`prisma migrate deploy`) — apply migrations to whatever `DATABASE_URL`/`DIRECT_URL` are
+  actually configured. Local development never needs these directly (use `db:dev:migrate`
+  instead); these exist for an actual, deliberate Supabase migration or a CI/production deploy
+  step.
+- `npm run preflight:size-groups` — explicitly documented as read-only (see "Size-groups
+  migration" below); safe to run against Supabase to inspect its current state.
+- `npm run build` / `npm run start` — production-adjacent; `next build`'s static-generation step
+  legitimately reads live Supabase data (see the Product Flow Stabilization Sprint's findings),
+  and `next start` is the production server. Neither runs a migration.
+
+None of `npm run dev`, `npm run dev:local`, `npm run test`, `npm run test:integration`,
+`npm run test:migrations`, or `npm run test:e2e` can reach Supabase — each is either wrapped by
+`with-dev-db.mjs`/`with-test-db.mjs` (fail-closed, forces a local URL) or (`test`/`test:unit`)
+never opens a database connection at all.
+
 ## Schema overview (foundation phase)
 
 ### Authentication (Better Auth)

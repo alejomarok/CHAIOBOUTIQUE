@@ -1,126 +1,370 @@
-import { Mail, MapPin } from "lucide-react";
+import { Mail, MapPin, Phone } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
+import {
+  FacebookIcon,
+  InstagramIcon,
+  WhatsAppIcon,
+} from "@/components/icons/social-icons";
 import { Logo } from "@/components/layout/logo";
-import { FacebookIcon, InstagramIcon, TikTokIcon, WhatsAppIcon } from "@/components/icons/social-icons";
-import { env } from "@/lib/env";
+import { isSchemaDriftError } from "@/lib/prisma-schema-drift";
+import { normalizePhone } from "@/modules/customers/normalize";
+import { listActiveBranches } from "@/modules/store-branches/branch";
+import { getStoreConfiguration } from "@/modules/store-settings/service";
+import type { StoreBranch } from "@/generated/prisma/client";
 
-const STORE_LINKS = [
-  { href: "/", label: "Inicio" },
-  { href: "/catalog", label: "Catálogo" },
-  { href: "/catalog?sort=newest", label: "Novedades" },
+const NAV_LINKS = [
+  { href: "/catalog?sort=newest", label: "Nueva Colección" },
+  { href: "/catalog", label: "Tops" },
+  { href: "/catalog", label: "Vestidos" },
+  { href: "/catalog", label: "Pantalones" },
+  { href: "/catalog", label: "Ventas Especiales" },
 ];
 
-// None of these have a real page yet — shown as plain, deliberately
-// non-clickable text rather than a link that would 404, per "either omit
-// them or keep them clearly non-clickable until implemented."
-const HELP_ITEMS = ["Contacto", "Envíos", "Cambios y devoluciones", "Preguntas frecuentes"];
+const INFO_ITEMS = [
+  "Nosotras",
+  "Guía de Talles",
+  "Preguntas Frecuentes",
+  "Contacto",
+];
 
-function waLink(number: string): string {
-  return `https://wa.me/${number.replace(/[^\d]/g, "")}`;
+function waLink(rawNumber: string): string {
+  const digits = normalizePhone(rawNumber)?.replace(/^\+/, "") ?? "";
+  return `https://wa.me/${digits}`;
 }
 
-export function PublicFooter() {
+function telHref(rawNumber: string): string {
+  return `tel:${normalizePhone(rawNumber) ?? rawNumber}`;
+}
+
+interface FooterContactConfig {
+  publicPhone: string | null;
+  publicEmail: string | null;
+  whatsappPhone: string | null;
+  instagramUrl: string | null;
+  facebookUrl: string | null;
+}
+
+const EMPTY_CONTACT_CONFIG: FooterContactConfig = {
+  publicPhone: null,
+  publicEmail: null,
+  whatsappPhone: null,
+  instagramUrl: null,
+  facebookUrl: null,
+};
+
+async function loadFooterData(): Promise<{
+  config: FooterContactConfig;
+  branches: StoreBranch[];
+}> {
+  try {
+    const [config, branches] = await Promise.all([
+      getStoreConfiguration(),
+      listActiveBranches(),
+    ]);
+
+    return {
+      config: {
+        publicPhone: config.publicPhone,
+        publicEmail: config.publicEmail,
+        whatsappPhone: config.whatsappPhone,
+        instagramUrl: config.instagramUrl,
+        facebookUrl: config.facebookUrl,
+      },
+      branches,
+    };
+  } catch (error) {
+    if (isSchemaDriftError(error)) {
+      return { config: EMPTY_CONTACT_CONFIG, branches: [] };
+    }
+    throw error;
+  }
+}
+
+function SectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <div>
+      <h3 className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#4d443f] sm:text-xs">
+        {children}
+      </h3>
+      <span className="mt-3 block h-px w-6 bg-[#d7ad78]" aria-hidden="true" />
+    </div>
+  );
+}
+
+function BotanicalDecoration() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 180 250"
+      className="pointer-events-none absolute -bottom-5 right-0 hidden h-56 w-40 text-[#dfc4a5]/55 xl:block"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    >
+      <path d="M166 243C139 205 115 168 105 126C96 88 105 43 125 7" />
+      <path d="M121 29C136 31 147 41 151 56C136 54 124 44 121 29Z" />
+      <path d="M108 60C91 60 77 69 70 83C87 84 101 75 108 60Z" />
+      <path d="M111 93C129 94 142 104 148 120C130 119 117 109 111 93Z" />
+      <path d="M104 124C86 125 72 136 66 152C84 151 98 141 104 124Z" />
+      <path d="M115 155C133 156 147 167 153 184C134 182 121 172 115 155Z" />
+      <path d="M126 186C108 188 95 199 90 216C108 214 121 203 126 186Z" />
+    </svg>
+  );
+}
+
+export async function PublicFooter() {
+  const { config, branches } = await loadFooterData();
+
   const socialLinks = [
-    env.STORE_INSTAGRAM_URL && { href: env.STORE_INSTAGRAM_URL, label: "Instagram", Icon: InstagramIcon },
-    env.STORE_FACEBOOK_URL && { href: env.STORE_FACEBOOK_URL, label: "Facebook", Icon: FacebookIcon },
-    env.STORE_TIKTOK_URL && { href: env.STORE_TIKTOK_URL, label: "TikTok", Icon: TikTokIcon },
-    env.STORE_WHATSAPP_NUMBER && {
-      href: waLink(env.STORE_WHATSAPP_NUMBER),
+    {
+      href: config.instagramUrl,
+      label: "Instagram",
+      Icon: InstagramIcon,
+    },
+    {
+      href: config.facebookUrl,
+      label: "Facebook",
+      Icon: FacebookIcon,
+    },
+    {
+      href: config.whatsappPhone ? waLink(config.whatsappPhone) : null,
       label: "WhatsApp",
       Icon: WhatsAppIcon,
     },
-  ].filter((link): link is { href: string; label: string; Icon: typeof InstagramIcon } => Boolean(link));
-
-  const hasContactInfo = Boolean(env.STORE_CONTACT_EMAIL || env.STORE_CITY);
-  const hasFollowColumn = socialLinks.length > 0 || hasContactInfo;
+  ];
 
   return (
-    <footer className="border-border bg-muted/40 border-t">
-      <div
-        className={`mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 lg:px-8 ${
-          hasFollowColumn ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"
-        }`}
-      >
-        <div className="flex flex-col gap-3 sm:col-span-2 lg:col-span-1">
-          <Logo />
-          <p className="text-muted-foreground max-w-xs text-sm text-pretty">
-            Moda femenina con estilo, comodidad y personalidad.
-          </p>
-        </div>
+    <footer className="relative overflow-hidden border-t border-[#ead8c6] bg-[#fffaf5] text-[#504844]">
+      <BotanicalDecoration />
 
-        <div>
-          <h3 className="text-sm font-semibold">Tienda</h3>
-          <ul className="mt-3 flex flex-col gap-2">
-            {STORE_LINKS.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  className="text-muted-foreground hover:text-foreground text-sm"
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
+      <div className="relative mx-auto max-w-[1260px] px-5 pb-9 pt-10 sm:px-8 sm:pt-12 lg:px-10 lg:pb-10 lg:pt-11">
+        <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-[1.08fr_0.82fr_1fr_1.18fr] lg:gap-12">
+          <section>
+            <div className="max-w-[245px]">
+              <Logo />
+            </div>
 
-        <div>
-          <h3 className="text-sm font-semibold">Ayuda</h3>
-          <ul className="mt-3 flex flex-col gap-2">
-            {HELP_ITEMS.map((item) => (
-              <li key={item} className="text-muted-foreground text-sm">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
+            <p className="mt-5 max-w-[270px] text-[12px] leading-5 text-[#6f6661]">
+              Moda femenina seleccionada con amor, para acompañarte en tu mejor versión,
+              todos los días.
+            </p>
+          </section>
 
-        {hasFollowColumn && (
-          <div>
-            <h3 className="text-sm font-semibold">Seguinos</h3>
-            {socialLinks.length > 0 && (
-              <ul className="mt-3 flex items-center gap-2">
-                {socialLinks.map(({ href, label, Icon }) => (
-                  <li key={label}>
-                    <Link
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={label}
-                      className="text-muted-foreground hover:text-accent-cyan hover:bg-blush flex size-9 items-center justify-center rounded-full transition-colors"
-                    >
-                      <Icon className="size-[18px]" />
-                    </Link>
+          <section>
+            <SectionTitle>Navegación</SectionTitle>
+
+            <ul className="mt-5 space-y-2.5">
+              {NAV_LINKS.map((item, index) => (
+                <li key={`${item.label}-${index}`}>
+                  <Link
+                    href={item.href}
+                    className="text-[12px] text-[#5f5752] transition-colors hover:text-[#159aa0]"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+
+              {INFO_ITEMS.map((item) => (
+                <li key={item}>
+                  <span className="text-[12px] text-[#5f5752]">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section>
+            <SectionTitle>Nuestras sucursales</SectionTitle>
+
+            {branches.length > 0 ? (
+              <ul className="mt-5 space-y-6">
+                {branches.slice(0, 2).map((branch, index) => (
+                  <li key={branch.id}>
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#f7e3dc] text-[#a76d5b]">
+                        <MapPin className="size-4" aria-hidden="true" />
+                      </span>
+
+                      <div className="pt-0.5">
+                        <p className="text-[12px] leading-5 text-[#5b524d]">
+                          {branch.address},
+                        </p>
+                        <p className="text-[12px] leading-5 text-[#5b524d]">
+                          {[branch.city, branch.province].filter(Boolean).join(" ")}
+                        </p>
+                      </div>
+                    </div>
+
+                    {index === 0 && (
+                      <div
+                        aria-hidden="true"
+                        className="ml-[52px] mt-5 h-px w-36 bg-[#e4bf95]"
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
+            ) : (
+              <div className="mt-5 space-y-6">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#f7e3dc] text-[#a76d5b]">
+                    <MapPin className="size-4" aria-hidden="true" />
+                  </span>
+                  <div className="pt-0.5 text-[12px] leading-5 text-[#5b524d]">
+                    <p>Libertad 161,</p>
+                    <p>Río Tercero (Córdoba)</p>
+                  </div>
+                </div>
+
+                <div aria-hidden="true" className="ml-[52px] h-px w-36 bg-[#e4bf95]" />
+
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#f7e3dc] text-[#a76d5b]">
+                    <MapPin className="size-4" aria-hidden="true" />
+                  </span>
+                  <div className="pt-0.5 text-[12px] leading-5 text-[#5b524d]">
+                    <p>Av. Pistarini 141,</p>
+                    <p>Embalse</p>
+                  </div>
+                </div>
+              </div>
             )}
-            {hasContactInfo && (
-              <ul className="text-muted-foreground mt-4 flex flex-col gap-2 text-sm">
-                {env.STORE_CONTACT_EMAIL && (
-                  <li className="flex items-center gap-2">
-                    <Mail className="size-4 shrink-0" aria-hidden="true" />
-                    <Link href={`mailto:${env.STORE_CONTACT_EMAIL}`} className="hover:text-foreground">
-                      {env.STORE_CONTACT_EMAIL}
-                    </Link>
+          </section>
+
+          <section className="lg:pl-2">
+            <SectionTitle>Contactanos</SectionTitle>
+
+            <div className="mt-5 max-w-[285px] space-y-3">
+              {config.whatsappPhone && (
+                <Link
+                  href={waLink(config.whatsappPhone)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`WhatsApp: ${config.whatsappPhone}`}
+                  className="flex items-center gap-3 rounded-xl border border-[#f1ddd5] bg-[#fff7f2] px-4 py-3 transition-colors hover:bg-white"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#d8a96e] bg-white text-[#b57c49]">
+                    <WhatsAppIcon className="size-[17px]" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[12px] font-medium text-[#574e49]">
+                      {config.whatsappPhone}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-[#756b65]">
+                      ¡Escribinos, estamos para ayudarte!
+                    </span>
+                  </span>
+                </Link>
+              )}
+
+              {config.publicPhone && (
+                <Link
+                  href={telHref(config.publicPhone)}
+                  className="flex items-center gap-3 rounded-xl border border-[#f1ddd5] bg-[#fff7f2] px-4 py-3 transition-colors hover:bg-white"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#d8a96e] bg-white text-[#b57c49]">
+                    <Phone className="size-[17px]" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[12px] font-medium text-[#574e49]">
+                      {config.publicPhone}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-[#756b65]">Llamanos</span>
+                  </span>
+                </Link>
+              )}
+
+              {config.publicEmail && (
+                <Link
+                  href={`mailto:${config.publicEmail}`}
+                  className="flex items-center gap-3 rounded-xl border border-[#f1ddd5] bg-[#fff7f2] px-4 py-3 transition-colors hover:bg-white"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#d8a96e] bg-white text-[#b57c49]">
+                    <Mail className="size-[17px]" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[12px] font-medium text-[#574e49]">
+                      {config.publicEmail}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-[#756b65]">Correo electrónico</span>
+                  </span>
+                </Link>
+              )}
+
+              {!config.whatsappPhone && !config.publicPhone && !config.publicEmail && (
+                <div className="rounded-xl border border-dashed border-[#ead4c9] bg-white/40 px-4 py-4">
+                  <p className="text-[11px] leading-5 text-[#8f837d]">
+                    Los datos de contacto aparecerán acá cuando los configures desde el panel.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-7">
+              <div className="lg:text-center">
+                <SectionTitle>Seguinos</SectionTitle>
+              </div>
+
+              <ul className="mt-5 grid max-w-[270px] grid-cols-3 gap-3">
+                {socialLinks.map(({ href, label, Icon }) => (
+                  <li key={label} className="min-w-0">
+                    {href ? (
+                      <Link
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={label}
+                        className="group flex flex-col items-center gap-2 text-[10px] text-[#665c56]"
+                      >
+                        <span className="flex size-11 items-center justify-center rounded-full bg-[#f5dfd8] text-[#302b29] transition duration-200 group-hover:-translate-y-0.5 group-hover:bg-[#efd0c8]">
+                          <Icon className="size-[19px]" />
+                        </span>
+                        <span className="truncate">{label}</span>
+                      </Link>
+                    ) : (
+                      <div
+                        aria-label={`${label} no configurado`}
+                        className="flex flex-col items-center gap-2 text-[10px] text-[#9a8f89]"
+                      >
+                        <span className="flex size-11 items-center justify-center rounded-full bg-[#f7e9e4] text-[#6c625d]">
+                          <Icon className="size-[19px]" />
+                        </span>
+                        <span className="truncate">{label}</span>
+                      </div>
+                    )}
                   </li>
-                )}
-                {env.STORE_CITY && (
-                  <li className="flex items-center gap-2">
-                    <MapPin className="size-4 shrink-0" aria-hidden="true" />
-                    <span>{env.STORE_CITY}</span>
-                  </li>
-                )}
+                ))}
               </ul>
-            )}
-          </div>
-        )}
+            </div>
+          </section>
+        </div>
       </div>
-      <div className="border-border border-t">
-        <p className="text-muted-foreground mx-auto max-w-7xl px-4 py-6 text-xs sm:px-6 lg:px-8">
-          &copy; {new Date().getFullYear()} CHAIOBOUTIQUE. Todos los derechos reservados.
-        </p>
+
+      <div
+        aria-hidden="true"
+        className="h-[2px] w-full bg-[linear-gradient(90deg,#ff2f86_0%,#ff2f86_18%,#16c7e9_18%,#16c7e9_39%,#76d10b_39%,#76d10b_61%,#ffd41b_61%,#ffd41b_79%,#ff8a00_79%,#ff8a00_100%)]"
+      />
+
+      <div className="relative border-t border-[#f3e9e3] bg-[#fffdfb]">
+        <div className="mx-auto grid max-w-[1260px] gap-4 px-5 py-5 text-[10px] text-[#716762] sm:px-8 lg:grid-cols-[1fr_auto_1fr] lg:items-center lg:px-10">
+          <p>
+            &copy; {new Date().getFullYear()} CHAIOBOUTIQUE. Todos los derechos reservados.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 lg:justify-center">
+            <span>Términos y Condiciones</span>
+            <span className="hidden text-[#9a918c] sm:inline">|</span>
+            <span>Cambios y Devoluciones</span>
+            <span className="hidden text-[#9a918c] sm:inline">|</span>
+            <span>Política de Privacidad</span>
+          </div>
+
+          <p className="flex items-center gap-2 lg:justify-end">
+            Diseñado con <span className="text-[#d39a58]">♡</span> para vos.
+          </p>
+        </div>
       </div>
     </footer>
   );

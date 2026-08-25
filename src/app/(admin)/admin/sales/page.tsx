@@ -14,8 +14,14 @@ import {
 } from "@/components/ui/table";
 import { minorUnitsToDisplay } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
+import { getInvoicingStatusForSales } from "@/modules/fiscal-documents/fiscal-document";
+import type { SaleInvoicingStatus } from "@/modules/fiscal-documents/fiscal-document";
+import {
+  SALE_INVOICING_STATUS_BADGE_VARIANT,
+  SALE_INVOICING_STATUS_LABELS_ES,
+} from "@/modules/fiscal-documents/labels";
 import { PAYMENT_STATUS_BADGE_VARIANT, PAYMENT_STATUS_LABELS_ES } from "@/modules/sales/payment-labels";
-import { listSales } from "@/modules/sales/sale";
+import { listSales, type SaleInvoicingStatusFilter } from "@/modules/sales/sale";
 import type { SalePaymentStatusValue } from "@/modules/sales/totals";
 import type { SaleStatus } from "@/generated/prisma/client";
 
@@ -36,7 +42,13 @@ const STATUS_BADGE_VARIANT: Record<SaleStatus, "default" | "outline" | "secondar
 };
 
 interface SalesPageProps {
-  searchParams: Promise<{ q?: string; status?: string; paymentStatus?: string; page?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    status?: string;
+    paymentStatus?: string;
+    invoicingStatus?: string;
+    page?: string;
+  }>;
 }
 
 function isValidStatus(value: string | undefined): value is SaleStatus {
@@ -47,23 +59,37 @@ function isValidPaymentStatus(value: string | undefined): value is SalePaymentSt
   return value === "UNPAID" || value === "PARTIALLY_PAID" || value === "PAID";
 }
 
+function isValidInvoicingStatus(value: string | undefined): value is SaleInvoicingStatusFilter {
+  return value === "NOT_INVOICED" || value === "PENDING" || value === "INVOICED" || value === "ERROR";
+}
+
 export default async function SalesPage({ searchParams }: SalesPageProps) {
   const user = await requirePermission("sales.view");
   const canCreate = user.permissions.has("sales.create");
+  const canViewInvoicing = user.permissions.has("invoices.view");
 
   const params = await searchParams;
   const page = Math.max(1, Number(params.page) || 1);
   const status = isValidStatus(params.status) ? params.status : undefined;
   const paymentStatus = isValidPaymentStatus(params.paymentStatus) ? params.paymentStatus : undefined;
+  const invoicingStatus =
+    canViewInvoicing && isValidInvoicingStatus(params.invoicingStatus) ? params.invoicingStatus : undefined;
 
   const { sales, total } = await listSales({
     search: params.q || undefined,
     status,
     paymentStatus,
+    invoicingStatus,
     take: PAGE_SIZE,
     skip: (page - 1) * PAGE_SIZE,
   });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // One batched query for the whole page, never N+1 — see
+  // getInvoicingStatusForSales's own comment.
+  const invoicingStatusBySale: Map<string, SaleInvoicingStatus> = canViewInvoicing
+    ? await getInvoicingStatusForSales(sales.map((sale) => sale.id))
+    : new Map();
 
   return (
     <div className="flex flex-col gap-6">
@@ -120,6 +146,23 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
             <option value="PAID">Pagada</option>
           </select>
         </div>
+        {canViewInvoicing && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="invoicingStatus">Facturación</Label>
+            <select
+              id="invoicingStatus"
+              name="invoicingStatus"
+              defaultValue={params.invoicingStatus ?? ""}
+              className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+            >
+              <option value="">Todas</option>
+              <option value="NOT_INVOICED">Sin facturar</option>
+              <option value="PENDING">Pendiente</option>
+              <option value="INVOICED">Facturada</option>
+              <option value="ERROR">Error</option>
+            </select>
+          </div>
+        )}
         <Button type="submit" size="sm" variant="outline">
           Buscar
         </Button>
@@ -148,6 +191,7 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
                 <TableHead>Total</TableHead>
                 <TableHead>Pagado</TableHead>
                 <TableHead>Estado del pago</TableHead>
+                {canViewInvoicing && <TableHead>Facturación</TableHead>}
                 <TableHead>Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -173,6 +217,18 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
                       {PAYMENT_STATUS_LABELS_ES[sale.paymentStatus]}
                     </Badge>
                   </TableCell>
+                  {canViewInvoicing && (
+                    <TableCell>
+                      {(() => {
+                        const invoicingStatusForRow = invoicingStatusBySale.get(sale.id) ?? "NOT_INVOICED";
+                        return (
+                          <Badge variant={SALE_INVOICING_STATUS_BADGE_VARIANT[invoicingStatusForRow]}>
+                            {SALE_INVOICING_STATUS_LABELS_ES[invoicingStatusForRow]}
+                          </Badge>
+                        );
+                      })()}
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Button asChild size="sm" variant="outline">
                       <Link href={`/admin/sales/${sale.id}`}>Ver</Link>

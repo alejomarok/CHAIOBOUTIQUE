@@ -1,15 +1,20 @@
-import type { Prisma, Sale, SalePaymentStatus, SaleStatus } from "@/generated/prisma/client";
+import type { FiscalTaxCategory, Prisma, Sale, SalePaymentStatus, SaleStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db-core";
 import { recordAuditLog } from "@/modules/audit/index-core";
 import { getCustomerDisplayName } from "@/modules/customers/normalize";
+import { resolveSaleItemTaxSnapshot } from "@/modules/fiscal-documents/arca/fiscal-tax-category-core";
 import {
   applyInventoryOperation,
   DuplicateOperationError,
+  getAvailableToSellForVariants,
   InactiveWarehouseError,
   InsufficientStockError,
 } from "@/modules/inventory/service-core";
 import { getEffectivePrice } from "@/modules/products/pricing";
+import { getStoreConfiguration } from "@/modules/store-settings/service-core";
 
+import { invoicingStatusWhere } from "./invoicing-filters";
+import type { SaleInvoicingStatusFilter } from "./invoicing-filters";
 import { buildCandidateSaleCode } from "./record-code";
 import { computeSaleItemTotals, computeSaleTotals } from "./totals";
 
@@ -113,6 +118,23 @@ export class SaleHasActivePaymentsError extends Error {
   }
 }
 
+// Phase — Fiscal Invoicing Foundation. Until a real credit-note/correction
+// workflow exists, cancelling a Sale that already has a final fiscal
+// document registered against it (MANUAL, SISTEMA_EXTERNO, or an
+// ELECTRONICA_ARCA document once a future phase actually issues one) would
+// leave a real external fiscal record pointing at a commercial transaction
+// this system now claims never happened — a worse inconsistency than simply
+// refusing the cancellation. See modules/fiscal-documents/
+// fiscal-document-core.ts's own "correction, never conceal" posture.
+export class SaleHasFiscalDocumentError extends Error {
+  constructor() {
+    super(
+      "Esta venta ya tiene un comprobante fiscal registrado. Se requiere un proceso de anulación/nota de crédito.",
+    );
+    this.name = "SaleHasFiscalDocumentError";
+  }
+}
+
 export interface StockShortfall {
   productVariantId: string;
   displayName: string;
@@ -146,7 +168,11 @@ export class InsufficientSaleStockError extends Error {
   }
 }
 
-async function generateSaleCode(tx: Prisma.TransactionClient): Promise<string> {
+// Exported — Phase: Mercado Pago Checkout Pro integration.
+// modules/orders/order-core.ts's finalizePaidOrder reuses this exact
+// generator (same candidate + DB-retry-loop + unique-constraint pattern
+// every other record code in this schema uses) rather than a second copy.
+export async function generateSaleCode(tx: Prisma.TransactionClient): Promise<string> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const candidate = buildCandidateSaleCode();
     const collision = await tx.sale.count({ where: { code: candidate } });
@@ -221,15 +247,30 @@ interface ResolvedSaleItem {
   discountAmount: bigint;
   subtotalAmount: bigint;
   totalAmount: bigint;
+  taxCategory: FiscalTaxCategory | null;
+  taxRateBasisPoints: number | null;
 }
 
+// defaultTaxCategory is resolved ONCE by the caller (createSale/updateSale)
+// — never refetched per item — see this phase's "ARCA Fiscal Readiness
+// correction pass": StoreConfiguration.defaultTaxCategory + Product.
+// taxCategory (an explicit per-product override, checked first) resolve to
+// the SNAPSHOT this SaleItem carries forever afterward (see SaleItem.
+// taxCategory's own schema comment) — never re-derived from live data once
+// written. A product/store with no tax category configured at all snapshots
+// null on both fields, exactly like every other "genuinely unconfigured,
+// never guessed" value in this fiscal-readiness work — this never blocks
+// creating the Sale itself (see this phase's "must not block MANUAL/
+// SISTEMA_EXTERNO or ordinary POS sales" requirement); it only limits what
+// a future Factura A/B ARCA decomposition can do with this line.
 async function resolveSaleItem(
   tx: Prisma.TransactionClient,
   input: SaleItemInput,
+  defaultTaxCategory: FiscalTaxCategory | null,
 ): Promise<ResolvedSaleItem> {
   const variant = await tx.productVariant.findUnique({
     where: { id: input.productVariantId },
-    include: { product: { select: { name: true, defaultPriceAmount: true } } },
+    include: { product: { select: { name: true, defaultPriceAmount: true, taxCategory: true } } },
   });
   if (!variant) throw new ProductVariantNotFoundError();
 
@@ -248,6 +289,11 @@ async function resolveSaleItem(
     discountAmount,
   });
 
+  const { taxCategory, taxRateBasisPoints } = resolveSaleItemTaxSnapshot({
+    productOverride: variant.product.taxCategory,
+    storeDefault: defaultTaxCategory,
+  });
+
   return {
     productVariantId: variant.id,
     productNameSnapshot: variant.name ? `${variant.product.name} - ${variant.name}` : variant.product.name,
@@ -257,6 +303,8 @@ async function resolveSaleItem(
     discountAmount,
     subtotalAmount,
     totalAmount,
+    taxCategory,
+    taxRateBasisPoints,
   };
 }
 
@@ -291,7 +339,16 @@ async function findStockShortfalls(
   const balances = await tx.inventoryBalance.findMany({
     where: { warehouseId, variantId: { in: variantIds } },
   });
-  const availableByVariant = new Map(balances.map((b) => [b.variantId, b.quantity]));
+  // Phase — Online Orders & Checkout foundation. AVAILABLE-TO-SELL
+  // (on-hand minus ACTIVE reservations from pending online Orders), never
+  // raw on-hand — see modules/inventory/service-core.ts's
+  // getAvailableToSell for the canonical formula (inlined here, not called
+  // directly, since this already-open `tx` must see the same
+  // not-yet-committed state applyInventoryOperation's own guarded UPDATE
+  // will enforce a moment later — see that function's SALE-movement guard).
+  const availableByVariant = new Map(
+    balances.map((b) => [b.variantId, Math.max(0, b.quantity - b.reservedQuantity)]),
+  );
 
   const shortfalls: StockShortfall[] = [];
   for (const [variantId, { quantity, displayName, skuSnapshot }] of requestedByVariant) {
@@ -332,7 +389,13 @@ async function findStockShortfalls(
 // row lock on inventory_balance serializes the two UPDATEs, and the second
 // one's own WHERE clause sees the first's already-applied deduction and
 // correctly finds insufficient stock.
-async function confirmSaleWithinTransaction(
+// Exported (not module-private) — Phase: Mercado Pago Checkout Pro
+// integration. modules/orders/order-core.ts's finalizePaidOrder reuses this
+// exact function (never a second copy of the stock-deduction logic) so an
+// online-payment-triggered Sale confirmation goes through the SAME atomic
+// guarded-UPDATE/idempotencyKey mechanism as every POS sale confirmation —
+// see this integration's explicit "do not duplicate concepts" requirement.
+export async function confirmSaleWithinTransaction(
   tx: Prisma.TransactionClient,
   id: string,
   actorId: string,
@@ -389,13 +452,23 @@ export async function createSale(input: CreateSaleInput, actorId: string): Promi
     throw new EmptySaleCannotBeConfirmedError();
   }
 
+  // Resolved once, outside the transaction (a plain, low-contention
+  // singleton read via the global prisma client — same posture as every
+  // other "resolve external prerequisite context first" step in this
+  // function) — never refetched per item; see resolveSaleItem's own
+  // comment for why this is the ONE place a SaleItem's tax-category
+  // snapshot is decided.
+  const { defaultTaxCategory } = await getStoreConfiguration();
+
   return prisma.$transaction(async (tx) => {
     const customer = await tx.customer.findUnique({ where: { id: input.customerId } });
     if (!customer) throw new Error("Cliente no encontrado.");
 
     const warehouseId = await resolveWarehouseId(tx, input.warehouseId);
 
-    const resolvedItems = await Promise.all(input.items.map((item) => resolveSaleItem(tx, item)));
+    const resolvedItems = await Promise.all(
+      input.items.map((item) => resolveSaleItem(tx, item, defaultTaxCategory)),
+    );
     const totals = computeSaleTotals(resolvedItems);
 
     // Always created as DRAFT first — confirmSaleWithinTransaction (below,
@@ -469,13 +542,19 @@ export async function updateSale(id: string, input: UpdateSaleInput, actorId: st
     throw new EmptySaleCannotBeConfirmedError();
   }
 
+  // See createSale's identical comment — resolved once, outside the
+  // transaction.
+  const { defaultTaxCategory } = await getStoreConfiguration();
+
   return prisma.$transaction(async (tx) => {
     const existing = await assertEditableDraft(tx, id);
     const warehouseId = input.warehouseId
       ? await resolveWarehouseId(tx, input.warehouseId)
       : existing.warehouseId;
 
-    const resolvedItems = await Promise.all(input.items.map((item) => resolveSaleItem(tx, item)));
+    const resolvedItems = await Promise.all(
+      input.items.map((item) => resolveSaleItem(tx, item, defaultTaxCategory)),
+    );
     const totals = computeSaleTotals(resolvedItems);
 
     await tx.saleItem.deleteMany({ where: { saleId: id } });
@@ -567,6 +646,11 @@ export async function cancelSale(id: string, reason: string, actorId: string): P
       const activePayments = await tx.salePayment.count({ where: { saleId: id, status: "ACTIVE" } });
       if (activePayments > 0) throw new SaleHasActivePaymentsError();
 
+      const activeFiscalDocument = await tx.fiscalDocument.count({
+        where: { saleId: id, status: { not: "VOIDED" } },
+      });
+      if (activeFiscalDocument > 0) throw new SaleHasFiscalDocumentError();
+
       const items = await tx.saleItem.findMany({ where: { saleId: id } });
       try {
         await applyInventoryOperation(
@@ -623,11 +707,32 @@ export async function getSaleById(id: string) {
   return prisma.sale.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, code: true, type: true } },
+      customer: {
+        select: { id: true, code: true, type: true, email: true, phone: true, isSystemDefault: true },
+      },
       warehouse: { select: { id: true, code: true, name: true } },
       createdBy: { select: { id: true, name: true } },
       cancelledBy: { select: { id: true, name: true } },
-      items: { orderBy: { createdAt: "asc" } },
+      // Phase — Sales Consultation & Commercial Reporting. Origin/"Pedido
+      // de origen" link (see modules/sales/report-core.ts's
+      // deriveSaleOrigin) — only id/code, never the full Order row (this
+      // page links to /admin/orders/[id] for anything more).
+      order: { select: { id: true, code: true, requiresPaymentReview: true, paymentReviewReason: true } },
+      items: {
+        orderBy: { createdAt: "asc" },
+        // Color/Talle (customer-friendly names, never raw ids) — see this
+        // phase's explicit "show customer-friendly product descriptions"
+        // requirement. sizeOption/color are read-only reference data here,
+        // never re-derived pricing.
+        include: {
+          productVariant: {
+            select: {
+              color: { select: { displayName: true } },
+              sizeOption: { select: { label: true } },
+            },
+          },
+        },
+      },
       // Newest first — matches the "Pagos" history requirement (most
       // recent activity at the top).
       payments: {
@@ -641,6 +746,14 @@ export async function getSaleById(id: string) {
   });
 }
 
+// Phase — Sales Consultation & Commercial Reporting. Extracted to
+// invoicing-filters.ts so modules/sales/report-core.ts can reuse the exact
+// same WHERE-clause logic (plus the new invoicingModeWhere) rather than
+// reimplementing it — re-exported here unchanged so existing callers
+// importing SaleInvoicingStatusFilter from "@/modules/sales/sale" keep
+// working.
+export type { SaleInvoicingStatusFilter } from "./invoicing-filters";
+
 export interface ListSalesInput {
   search?: string;
   status?: SaleStatus;
@@ -649,6 +762,11 @@ export interface ListSalesInput {
   // computed per request, so this stays a single indexed equality filter
   // regardless of result-set size.
   paymentStatus?: SalePaymentStatus;
+  // Phase — Fiscal Invoicing Foundation. Derived from the Sale's current
+  // (non-VOIDED) FiscalDocument, if any — a relational filter, never a
+  // second N+1 query. See fiscal-document-core.ts's deriveSaleInvoicingStatus
+  // for the read-one-Sale-at-a-time equivalent of this same logic.
+  invoicingStatus?: SaleInvoicingStatusFilter;
   take?: number;
   skip?: number;
 }
@@ -664,6 +782,7 @@ export async function listSales(input: ListSalesInput = {}): Promise<{ sales: Sa
   const where: Prisma.SaleWhereInput = {
     ...(input.status ? { status: input.status } : {}),
     ...(input.paymentStatus ? { paymentStatus: input.paymentStatus } : {}),
+    ...(input.invoicingStatus ? invoicingStatusWhere(input.invoicingStatus) : {}),
     ...(searchTerm
       ? {
           OR: [
@@ -720,10 +839,15 @@ export async function searchSellableVariants(
     take,
   });
 
-  const balances = await prisma.inventoryBalance.findMany({
-    where: { warehouseId, variantId: { in: variants.map((v) => v.id) } },
-  });
-  const stockByVariant = new Map(balances.map((b) => [b.variantId, b.quantity]));
+  // Available-to-sell (on-hand minus ACTIVE reservations from pending
+  // online Orders) — see modules/inventory/service-core.ts's
+  // getAvailableToSellForVariants. POS must never offer more than what a
+  // concurrent online checkout has already committed to, per this phase's
+  // explicit "POS respects active reservations" requirement.
+  const stockByVariant = await getAvailableToSellForVariants(
+    variants.map((v) => v.id),
+    warehouseId,
+  );
 
   return variants.map((variant) => ({
     id: variant.id,
@@ -745,9 +869,5 @@ export async function getAvailableStockForVariants(
   variantIds: string[],
   warehouseId: string,
 ): Promise<Map<string, number>> {
-  if (variantIds.length === 0) return new Map();
-  const balances = await prisma.inventoryBalance.findMany({
-    where: { warehouseId, variantId: { in: variantIds } },
-  });
-  return new Map(balances.map((b) => [b.variantId, b.quantity]));
+  return getAvailableToSellForVariants(variantIds, warehouseId);
 }

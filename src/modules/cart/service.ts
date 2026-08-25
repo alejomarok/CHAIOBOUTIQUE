@@ -1,9 +1,9 @@
 import "server-only";
 
-import { minorUnitsToDisplay } from "@/lib/money";
+import { minorUnitsToDisplay, serializeMoney } from "@/lib/money";
 import { prisma } from "@/lib/db";
 import { timed } from "@/lib/timing";
-import { getInventoryBalance } from "@/modules/inventory/service";
+import { getAvailableToSell } from "@/modules/inventory/service";
 import { getEffectivePrice } from "@/modules/products/pricing";
 import { getProductImagePublicUrl } from "@/modules/products/product-images";
 import { isPubliclyVisible } from "@/modules/products/visibility";
@@ -69,11 +69,25 @@ export interface CartDTO {
   itemCount: number;
   items: CartItemDTO[];
   subtotalDisplay: string;
+  // Serialized (see lib/money.ts's serializeMoney) — a raw bigint can't
+  // cross this boundary. Phase — Online Orders & Checkout foundation: the
+  // checkout summary step combines this with a delivery fee for a live
+  // "Total" preview, same "never authoritative, server recomputes on
+  // submit" posture as sale-form.tsx's computePreviewTotal.
+  subtotalAmount: string;
   hasIssues: boolean;
 }
 
 function emptyCartDTO(currency: string): CartDTO {
-  return { id: null, currency, itemCount: 0, items: [], subtotalDisplay: minorUnitsToDisplay(0n, { currency }), hasIssues: false };
+  return {
+    id: null,
+    currency,
+    itemCount: 0,
+    items: [],
+    subtotalDisplay: minorUnitsToDisplay(0n, { currency }),
+    subtotalAmount: "0",
+    hasIssues: false,
+  };
 }
 
 // Same shape as emptyCartDTO, but for a cart row that genuinely exists (a
@@ -86,6 +100,7 @@ function emptyCartDTOForCart(cart: Cart): CartDTO {
     itemCount: 0,
     items: [],
     subtotalDisplay: minorUnitsToDisplay(0n, { currency: cart.currency }),
+    subtotalAmount: "0",
     hasIssues: false,
   };
 }
@@ -137,11 +152,18 @@ function isProductPurchasable(product: PurchasabilityInput): boolean {
 // and public-queries.ts's getPublicProductBySlug. A cart validation that
 // used a different (e.g. summed-across-warehouses) figure could accept a
 // quantity the product page itself would show as out of stock.
+//
+// Phase — Online Orders & Checkout foundation. Reads AVAILABLE-TO-SELL
+// (on-hand minus ACTIVE reservations from other checkouts), never raw
+// on-hand — the same formula checkout's own reservation step re-validates
+// authoritatively at submission time (see modules/inventory/service-core.ts's
+// getAvailableToSell). This keeps the cart's own pre-checkout guidance
+// honest: an item another shopper's pending Order has already reserved
+// should read as unavailable here too, not just at final submission.
 async function getAvailableStock(variantId: string): Promise<number> {
   const defaultWarehouse = await getDefaultWarehouse();
   if (!defaultWarehouse) return 0;
-  const balance = await getInventoryBalance(variantId, defaultWarehouse.id);
-  return balance?.quantity ?? 0;
+  return getAvailableToSell(variantId, defaultWarehouse.id);
 }
 
 interface PurchaseCheck {
@@ -305,7 +327,11 @@ async function getOrCreateCartRow(): Promise<Cart> {
 
 // Read-only lookup for display paths (Server Components) — never creates a
 // row, never writes a cookie. Returns null when no usable cart exists yet.
-async function findExistingCartRow(): Promise<Cart | null> {
+// Exported (not just used internally by getCart below) — Phase: Online
+// Orders & Checkout foundation's modules/orders/order-core.ts calls this
+// directly to resolve "the authoritative cart to convert" without
+// duplicating this exact identity-to-cart-row resolution a second time.
+export async function findExistingCartRow(): Promise<Cart | null> {
   const identity = await resolveCartIdentityReadOnly();
 
   if (identity.type === "user") {
@@ -409,6 +435,7 @@ async function toCartDTO(cart: Cart): Promise<CartDTO> {
     itemCount,
     items: itemDTOs,
     subtotalDisplay: minorUnitsToDisplay(subtotal, { currency: cart.currency }),
+    subtotalAmount: serializeMoney(subtotal),
     hasIssues,
   };
 }

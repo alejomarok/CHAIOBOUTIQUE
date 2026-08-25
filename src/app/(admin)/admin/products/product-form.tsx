@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { FISCAL_TAX_CATEGORY_LABELS_ES } from "@/modules/fiscal-documents/arca/fiscal-tax-category-core";
 
 import { createProductAction, updateProductAction } from "./actions";
 
@@ -48,6 +49,9 @@ const formSchema = z.object({
   compareAtPriceAmount: z.string().optional(),
   referenceCostAmount: z.string().optional(),
   minimumStockThreshold: z.string().optional(),
+  // "" = use StoreConfiguration.defaultTaxCategory — matches
+  // app/(admin)/admin/settings/actions.ts's own enum exactly.
+  taxCategory: z.enum(["IVA_21", "IVA_10_5", "IVA_27", "IVA_5", "IVA_2_5", "IVA_0", "EXENTO", ""]).optional(),
 });
 type FormInput = z.infer<typeof formSchema>;
 
@@ -87,6 +91,7 @@ export function ProductForm({
       compareAtPriceAmount: "",
       referenceCostAmount: "",
       minimumStockThreshold: "",
+      taxCategory: "",
       ...defaultValues,
     },
   });
@@ -304,6 +309,41 @@ export function ProductForm({
               <FormControl>
                 <Input type="number" min={0} step={1} {...field} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="taxCategory"
+          render={({ field }) => (
+            <FormItem>
+              {/* Deliberately never "Categoría ..." — this form already has
+                  a genuine "Categoría" field (the product's catalog
+                  category) and Playwright's getByLabel does a fuzzy/
+                  substring match by default, so two similarly-worded
+                  labels become ambiguous to any selector written before
+                  this field existed. */}
+              <FormLabel>Alícuota de IVA (opcional)</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Usar la categoría por defecto de la tienda" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {Object.entries(FISCAL_TAX_CATEGORY_LABELS_ES).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-muted-foreground text-xs">
+                Anula la categoría fiscal por defecto de la tienda (Configuración → Datos fiscales)
+                solo para este producto. No es asesoramiento contable ni impositivo.
+              </p>
               <FormMessage />
             </FormItem>
           )}

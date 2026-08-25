@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { RECIPIENT_VAT_CONDITION_LABELS_ES } from "@/modules/fiscal-documents/arca/vat-condition-labels";
 
 import { createCustomerAction, updateCustomerAction } from "./actions";
 
@@ -46,6 +47,13 @@ const formSchema = z.object({
   documentNumber: z.string().optional(),
   taxId: z.string().optional(),
   taxCondition: z.string().optional(),
+  // Phase — ARCA Fiscal Readiness + Tax Model. "" means "not yet
+  // determined" — never defaulted to CONSUMIDOR_FINAL by this form; see
+  // Customer.vatCondition's own schema comment. Matches
+  // app/(admin)/admin/customers/actions.ts's own enum exactly.
+  vatCondition: z
+    .enum(["RESPONSABLE_INSCRIPTO", "MONOTRIBUTISTA", "EXENTO", "CONSUMIDOR_FINAL", "IVA_NO_ALCANZADO", ""])
+    .optional(),
   email: z.string().optional(),
   phone: z.string().optional(),
   notes: z.string().optional(),
@@ -96,6 +104,7 @@ export function CustomerForm({ customerId, defaultValues }: CustomerFormProps) {
       documentNumber: "",
       taxId: "",
       taxCondition: "",
+      vatCondition: "",
       email: "",
       phone: "",
       notes: "",
@@ -289,6 +298,34 @@ export function CustomerForm({ customerId, defaultValues }: CustomerFormProps) {
                       ))}
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="vatCondition"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Condición frente al IVA — ARCA (opcional)</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="No determinada" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {Object.entries(RECIPIENT_VAT_CONDITION_LABELS_ES).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-muted-foreground text-xs">
+                    Usado para determinar el tipo de comprobante en una futura factura
+                    electrónica ARCA — no es obligatorio para una venta minorista simple.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

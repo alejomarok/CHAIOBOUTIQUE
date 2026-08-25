@@ -2,7 +2,9 @@
 
 import {
   ArrowLeftRight,
+  BarChart3,
   Boxes,
+  ClipboardList,
   Contact,
   KeyRound,
   LayoutDashboard,
@@ -45,6 +47,8 @@ const ICON_MAP: Record<AdminIconName, ComponentType<{ className?: string }>> = {
   settings: Settings,
   contact: Contact,
   "shopping-cart": ShoppingCart,
+  "clipboard-list": ClipboardList,
+  "bar-chart-3": BarChart3,
 };
 
 export function AdminNavLinks({

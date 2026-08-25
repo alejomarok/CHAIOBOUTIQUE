@@ -77,6 +77,18 @@ export default defineConfig({
       // locally-served provider — see modules/storage/e2e-provider.ts. The
       // real product-images Supabase bucket is never touched by this suite.
       E2E_TEST_MODE: "true",
+      // Fake, non-functional values — E2E_TEST_MODE above already switches
+      // getMercadoPagoClient() to FakeMercadoPagoClient regardless of these
+      // (see client-core.ts), which never sends this token anywhere real.
+      // They exist only so getMercadoPagoConfig()'s "fully configured"
+      // check passes (see config-core.ts) — createMercadoPagoPreference
+      // must not fail-closed on missing config during this suite, and the
+      // webhook route needs a real secret to validate the SIGNED requests
+      // the fake checkout route (src/app/api/e2e-mercado-pago/checkout)
+      // sends it, exercising real signature verification end-to-end.
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-e2e-fake-access-token",
+      MERCADO_PAGO_WEBHOOK_SECRET: "e2e-fake-webhook-secret",
+      MERCADO_PAGO_ENVIRONMENT: "TEST",
     },
     timeout: 60_000,
     stdout: "pipe",
