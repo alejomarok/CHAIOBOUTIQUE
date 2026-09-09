@@ -19,7 +19,7 @@ const createCategorySchema = z.object({
 export async function createCategoryAction(input: z.infer<typeof createCategorySchema>) {
   const actor = await requirePermission("categories.manage");
   const data = createCategorySchema.parse(input);
-  await createCategory(
+  const category = await createCategory(
     {
       name: data.name,
       parentId: data.parentId ?? null,
@@ -32,6 +32,11 @@ export async function createCategoryAction(input: z.infer<typeof createCategoryS
   revalidatePath("/admin/categories");
   revalidatePath("/");
   revalidatePath("/catalog");
+  // The category's own id doesn't exist before creation — the create
+  // dialog's own two-step image-upload workflow (prepare the upload using
+  // this id, only once the category itself is confirmed to exist) needs it
+  // back. See create-category-dialog.tsx.
+  return { id: category.id };
 }
 
 const updateCategorySchema = z.object({
@@ -49,6 +54,7 @@ export async function updateCategoryAction(input: z.infer<typeof updateCategoryS
   const { id, ...data } = updateCategorySchema.parse(input);
   await updateCategory(id, data, actor.id);
   revalidatePath("/admin/categories");
+  revalidatePath(`/admin/categories/${id}`);
   // A category's public-nav curation changed — the storefront header and
   // homepage category tiles must reflect it without a manual redeploy.
   revalidatePath("/");

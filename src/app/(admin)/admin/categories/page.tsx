@@ -1,3 +1,7 @@
+import Image from "next/image";
+import Link from "next/link";
+import { ImageOff } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -9,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { requirePermission } from "@/modules/auth";
 import { listSizeGroups } from "@/modules/attributes/service";
+import { getCategoryImagePublicUrl } from "@/modules/categories/category-images";
 import { listCategories } from "@/modules/categories/service";
 
 import { CategoryRowActions } from "./category-row-actions";
@@ -43,6 +48,7 @@ export default async function CategoriesPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-16">Imagen</TableHead>
               <TableHead>Nombre</TableHead>
               <TableHead>Categoría padre</TableHead>
               <TableHead>Productos</TableHead>
@@ -52,9 +58,34 @@ export default async function CategoriesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {categories.map((category) => (
+            {categories.map((category) => {
+              const imageUrl =
+                category.imageBucket && category.imagePath
+                  ? getCategoryImagePublicUrl({ imageBucket: category.imageBucket, imagePath: category.imagePath })
+                  : null;
+
+              return (
               <TableRow key={category.id}>
-                <TableCell className="font-medium">{category.name}</TableCell>
+                <TableCell>
+                  <div className="bg-muted relative size-10 shrink-0 overflow-hidden rounded-md">
+                    {imageUrl ? (
+                      <Image src={imageUrl} alt="" fill sizes="40px" className="object-cover" />
+                    ) : (
+                      <div className="text-muted-foreground flex h-full w-full items-center justify-center">
+                        <ImageOff className="size-4" aria-hidden="true" />
+                      </div>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="font-medium">
+                  {canManage ? (
+                    <Link href={`/admin/categories/${category.id}`} className="hover:underline">
+                      {category.name}
+                    </Link>
+                  ) : (
+                    category.name
+                  )}
+                </TableCell>
                 <TableCell>{category.parent?.name ?? "—"}</TableCell>
                 <TableCell>{category._count.products}</TableCell>
                 <TableCell>
@@ -81,7 +112,8 @@ export default async function CategoriesPage() {
                   </TableCell>
                 )}
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       </div>

@@ -2,6 +2,7 @@ import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
 import { ProductImage } from "@/components/catalog/product-image";
+import { getCategoryImagePublicUrl } from "@/modules/categories/category-images";
 import { listStorefrontNavCategories } from "@/modules/categories/service";
 import { listPublicProducts } from "@/modules/products/public-queries";
 
@@ -14,6 +15,18 @@ const TILE_BACKGROUNDS = [
   "bg-[#f2e9dc]",
 ];
 
+// Image priority (Phase — Admin-Controlled Category Images):
+//   1. The category's own admin-controlled storefront image
+//      (Category.imageBucket/imagePath — see /admin/categories/[id]).
+//   2. Falls back to the existing "newest product's primary image" lookup,
+//      for backward compatibility with a category nobody has curated an
+//      image for yet — never a broken tile just because migration added
+//      these columns as null on every pre-existing category.
+//   3. ProductImage's own neutral placeholder when neither exists.
+// Never an extra per-category product query once a category HAS its own
+// image: the fallback's listPublicProducts call only runs for categories
+// that actually need it, so a fully-curated set of tiles costs zero N+1
+// product queries.
 export async function CategoryTiles() {
   const categories = await listStorefrontNavCategories();
   const visibleCategories = categories
@@ -24,6 +37,13 @@ export async function CategoryTiles() {
 
   const tiles = await Promise.all(
     visibleCategories.map(async (category) => {
+      if (category.imageBucket && category.imagePath) {
+        return {
+          category,
+          imageUrl: getCategoryImagePublicUrl({ imageBucket: category.imageBucket, imagePath: category.imagePath }),
+        };
+      }
+
       const [product] = await listPublicProducts({
         categoryId: category.id,
         take: 1,
@@ -58,7 +78,7 @@ export async function CategoryTiles() {
             >
               <ProductImage
                 src={imageUrl}
-                alt={category.name}
+                alt={category.imageAltText || category.name}
                 sizes="(min-width: 1024px) 25vw, 50vw"
                 className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.05]"
               />

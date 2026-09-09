@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -33,8 +33,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { optimizeImageForUpload, validateSelectedImageFile } from "@/lib/image-optimize";
 
 import { createCategoryAction } from "./actions";
+import { finalizeCategoryImageUploadAction, prepareCategoryImageUploadAction } from "./image-actions";
+
+// Same direct-to-Supabase PUT as category-image-manager.tsx.
+function putToSignedUrl(signedUrl: string, file: File, onProgress: (percent: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", signedUrl);
+    xhr.setRequestHeader("content-type", file.type);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error("No se pudo subir la imagen. Intentá nuevamente."));
+    };
+    xhr.onerror = () => reject(new Error("No se pudo subir la imagen. Revisá tu conexión e intentá de nuevo."));
+    xhr.send(file);
+  });
+}
 
 const formSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio"),
@@ -54,6 +74,22 @@ export function CreateCategoryDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Remounts the (uncontrolled) file <Input> to clear its selection —
+  // deliberately not a ref: the reset needs to happen from inside
+  // onSubmit's closure (invoked via form.handleSubmit(onSubmit), a
+  // function CALL evaluated inline in JSX), and react-hooks/refs flags any
+  // ref read reachable from there as a potential render-time access. A
+  // state-driven remount key sidesteps the ambiguity entirely rather than
+  // fighting the linter.
+  const [fileInputKey, setFileInputKey] = useState(0);
+
+  const previewUrl = useMemo(() => (selectedFile ? URL.createObjectURL(selectedFile) : null), [selectedFile]);
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const form = useForm<FormInput>({
     resolver: zodResolver(formSchema),
@@ -66,18 +102,70 @@ export function CreateCategoryDialog({
     },
   });
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    if (file) {
+      const validationError = validateSelectedImageFile(file);
+      if (validationError) {
+        toast.error(validationError);
+        e.target.value = "";
+        setSelectedFile(null);
+        return;
+      }
+    }
+    setSelectedFile(file);
+  }
+
+  function resetAll() {
+    form.reset();
+    setSelectedFile(null);
+    setFileInputKey((key) => key + 1);
+  }
+
+  // Two-step workflow (this phase's explicit requirement): the category's
+  // id doesn't exist before creation, so the image — if one was selected —
+  // can only be uploaded AFTER createCategoryAction returns it. If that
+  // second step fails, the category itself is NOT rolled back/deleted: it
+  // was created successfully, and the admin can add the image later from
+  // the edit screen — see the specific required message below.
   async function onSubmit(values: FormInput) {
     setIsSubmitting(true);
     try {
-      await createCategoryAction({
+      const { id: categoryId } = await createCategoryAction({
         name: values.name,
         parentId: values.parentId || undefined,
         description: values.description || undefined,
         defaultSizeGroupId: values.defaultSizeGroupId || undefined,
         showInStorefrontNav: values.showInStorefrontNav,
       });
-      toast.success("Categoría creada.");
-      form.reset();
+
+      if (selectedFile) {
+        try {
+          const optimized = await optimizeImageForUpload(selectedFile);
+          const prepared = await prepareCategoryImageUploadAction({
+            categoryId,
+            filename: optimized.file.name,
+            contentType: optimized.file.type,
+            fileSize: optimized.file.size,
+          });
+          await putToSignedUrl(prepared.signedUrl, optimized.file, () => {});
+          await finalizeCategoryImageUploadAction({
+            categoryId,
+            bucket: prepared.bucket,
+            path: prepared.path,
+            contentType: optimized.file.type,
+          });
+          toast.success("Categoría creada.");
+        } catch {
+          toast.error(
+            "La categoría fue creada, pero no pudimos subir la imagen. Podés volver a intentarlo desde Editar.",
+          );
+        }
+      } else {
+        toast.success("Categoría creada.");
+      }
+
+      resetAll();
       setOpen(false);
     } catch {
       toast.error("No pudimos crear la categoría.");
@@ -87,7 +175,13 @@ export function CreateCategoryDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) resetAll();
+      }}
+    >
       <DialogTrigger asChild>
         <Button>Nueva categoría</Button>
       </DialogTrigger>
@@ -174,6 +268,30 @@ export function CreateCategoryDialog({
                 </FormItem>
               )}
             />
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium">Imagen de categoría (opcional)</p>
+              <Input
+                key={fileInputKey}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={isSubmitting}
+                onChange={handleFileChange}
+              />
+              {selectedFile && previewUrl && (
+                <div className="flex items-center gap-3">
+                  <div className="bg-muted relative h-16 w-16 shrink-0 overflow-hidden rounded-lg">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- a
+                        transient blob: URL preview, not a real category image. */}
+                    <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+                  </div>
+                  <p className="text-sm break-all">{selectedFile.name}</p>
+                </div>
+              )}
+              <p className="text-muted-foreground text-xs">
+                JPG, PNG o WebP. Se usa en la portada de la tienda. Podés agregarla o cambiarla después
+                desde Editar.
+              </p>
+            </div>
             <FormField
               control={form.control}
               name="showInStorefrontNav"

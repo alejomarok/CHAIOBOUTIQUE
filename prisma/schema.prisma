@@ -513,6 +513,20 @@ model Category {
   // unlike Product.sizeGroupId itself, which a product's variants may
   // genuinely depend on.
   defaultSizeGroupId  String?
+  // --- Storefront image — Phase: Admin-Controlled Category Images. Its
+  // own admin-controlled image, deliberately never derived from a product
+  // (see components/home/category-tiles.tsx's own comment on the priority
+  // order). Same "metadata only, binary lives in Supabase Storage" posture
+  // as ProductImage.bucket/path — never a permanent public URL stored here
+  // (getPublicUrl is always derived on read, so a future bucket/CDN change
+  // never requires a data migration). All three nullable and only ever set
+  // together (see modules/categories/category-images.ts) — null means "no
+  // image configured for this category yet", which the home tiles treat as
+  // "fall back to a product image, then a neutral placeholder", never a
+  // broken image or a dead link.
+  imageBucket         String?
+  imagePath           String?
+  imageAltText        String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
