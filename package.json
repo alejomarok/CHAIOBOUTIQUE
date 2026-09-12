@@ -6,7 +6,7 @@
     "dev": "node scripts/with-dev-db.mjs next dev",
     "dev:local": "npm run dev",
     "dev:remote": "node scripts/with-remote-db.mjs next dev",
-    "build": "next build",
+    "build": "npm run prisma:generate && next build",
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write .",
