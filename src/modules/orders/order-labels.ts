@@ -26,21 +26,25 @@ export const ORDER_STATUS_LABELS_ES: Record<OrderStatus, string> = {
 // in-progress-or-successful state, secondary = a terminal, non-alarming
 // negative state) — never a 5-tier color gradient across the whole
 // lifecycle, never a hardcoded alarm color.
-export const ORDER_STATUS_BADGE_VARIANT: Record<OrderStatus, "default" | "outline" | "secondary"> = {
-  PENDING_PAYMENT: "outline",
-  PAID: "default",
-  PROCESSING: "default",
-  READY_FOR_PICKUP: "default",
-  SHIPPED: "default",
-  DELIVERED: "default",
-  CANCELLED: "secondary",
-  EXPIRED: "secondary",
-};
+export const ORDER_STATUS_BADGE_VARIANT: Record<OrderStatus, "default" | "outline" | "secondary"> =
+  {
+    PENDING_PAYMENT: "outline",
+    PAID: "default",
+    PROCESSING: "default",
+    READY_FOR_PICKUP: "default",
+    SHIPPED: "default",
+    DELIVERED: "default",
+    CANCELLED: "secondary",
+    EXPIRED: "secondary",
+  };
 
 export const ORDER_PAYMENT_STATUS_LABELS_ES: Record<OrderPaymentStatus, string> = {
   UNPAID: "Sin pagar",
   PARTIALLY_PAID: "Pago parcial",
   PAID: "Pagado",
+  PARTIALLY_REFUNDED: "Reembolso parcial",
+  REFUNDED: "Reembolsado",
+  CHARGED_BACK: "Contracargo",
 };
 
 export const ORDER_PAYMENT_STATUS_BADGE_VARIANT: Record<
@@ -50,6 +54,9 @@ export const ORDER_PAYMENT_STATUS_BADGE_VARIANT: Record<
   UNPAID: "outline",
   PARTIALLY_PAID: "secondary",
   PAID: "default",
+  PARTIALLY_REFUNDED: "secondary",
+  REFUNDED: "secondary",
+  CHARGED_BACK: "secondary",
 };
 
 export const DELIVERY_METHOD_LABELS_ES: Record<DeliveryMethod, string> = {

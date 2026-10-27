@@ -1,32 +1,25 @@
 import { Mail, MapPin, Phone } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { POLICY_LINKS } from "@/modules/legal/policies";
 
 import {
   FacebookIcon,
   InstagramIcon,
+  TikTokIcon,
   WhatsAppIcon,
 } from "@/components/icons/social-icons";
 import { Logo } from "@/components/layout/logo";
+import type { StoreBranch } from "@/generated/prisma/client";
 import { isSchemaDriftError } from "@/lib/prisma-schema-drift";
 import { normalizePhone } from "@/modules/customers/normalize";
 import { listActiveBranches } from "@/modules/store-branches/branch";
 import { getStoreConfiguration } from "@/modules/store-settings/service";
-import type { StoreBranch } from "@/generated/prisma/client";
 
 const NAV_LINKS = [
-  { href: "/catalog?sort=newest", label: "Nueva Colección" },
-  { href: "/catalog", label: "Tops" },
-  { href: "/catalog", label: "Vestidos" },
-  { href: "/catalog", label: "Pantalones" },
-  { href: "/catalog", label: "Ventas Especiales" },
-];
-
-const INFO_ITEMS = [
-  "Nosotras",
-  "Guía de Talles",
-  "Preguntas Frecuentes",
-  "Contacto",
+  { href: "/catalog", label: "Ver colección" },
+  { href: "/catalog?sort=newest", label: "Novedades" },
+  { href: "/#esencia", label: "Nuestra esencia" },
+  { href: "/#contacto", label: "Contacto" },
 ];
 
 function waLink(rawNumber: string): string {
@@ -44,6 +37,7 @@ interface FooterContactConfig {
   whatsappPhone: string | null;
   instagramUrl: string | null;
   facebookUrl: string | null;
+  tiktokUrl: string | null;
 }
 
 const EMPTY_CONTACT_CONFIG: FooterContactConfig = {
@@ -52,18 +46,12 @@ const EMPTY_CONTACT_CONFIG: FooterContactConfig = {
   whatsappPhone: null,
   instagramUrl: null,
   facebookUrl: null,
+  tiktokUrl: null,
 };
 
-async function loadFooterData(): Promise<{
-  config: FooterContactConfig;
-  branches: StoreBranch[];
-}> {
+async function loadFooterData(): Promise<{ config: FooterContactConfig; branches: StoreBranch[] }> {
   try {
-    const [config, branches] = await Promise.all([
-      getStoreConfiguration(),
-      listActiveBranches(),
-    ]);
-
+    const [config, branches] = await Promise.all([getStoreConfiguration(), listActiveBranches()]);
     return {
       config: {
         publicPhone: config.publicPhone,
@@ -71,299 +59,189 @@ async function loadFooterData(): Promise<{
         whatsappPhone: config.whatsappPhone,
         instagramUrl: config.instagramUrl,
         facebookUrl: config.facebookUrl,
+        tiktokUrl: config.tiktokUrl,
       },
       branches,
     };
   } catch (error) {
-    if (isSchemaDriftError(error)) {
-      return { config: EMPTY_CONTACT_CONFIG, branches: [] };
-    }
+    if (isSchemaDriftError(error)) return { config: EMPTY_CONTACT_CONFIG, branches: [] };
     throw error;
   }
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
-  return (
-    <div>
-      <h3 className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#4d443f] sm:text-xs">
-        {children}
-      </h3>
-      <span className="mt-3 block h-px w-6 bg-[#d7ad78]" aria-hidden="true" />
-    </div>
-  );
-}
-
-function BotanicalDecoration() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 180 250"
-      className="pointer-events-none absolute -bottom-5 right-0 hidden h-56 w-40 text-[#dfc4a5]/55 xl:block"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.2"
-    >
-      <path d="M166 243C139 205 115 168 105 126C96 88 105 43 125 7" />
-      <path d="M121 29C136 31 147 41 151 56C136 54 124 44 121 29Z" />
-      <path d="M108 60C91 60 77 69 70 83C87 84 101 75 108 60Z" />
-      <path d="M111 93C129 94 142 104 148 120C130 119 117 109 111 93Z" />
-      <path d="M104 124C86 125 72 136 66 152C84 151 98 141 104 124Z" />
-      <path d="M115 155C133 156 147 167 153 184C134 182 121 172 115 155Z" />
-      <path d="M126 186C108 188 95 199 90 216C108 214 121 203 126 186Z" />
-    </svg>
-  );
-}
+const linkClassName =
+  "inline-flex min-h-11 items-center text-base leading-relaxed transition-colors hover:text-[#34483d] hover:underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34483d]";
 
 export async function PublicFooter() {
   const { config, branches } = await loadFooterData();
-
   const socialLinks = [
-    {
-      href: config.instagramUrl,
-      label: "Instagram",
-      Icon: InstagramIcon,
-    },
-    {
-      href: config.facebookUrl,
-      label: "Facebook",
-      Icon: FacebookIcon,
-    },
+    { href: config.instagramUrl, label: "Instagram", Icon: InstagramIcon },
+    { href: config.facebookUrl, label: "Facebook", Icon: FacebookIcon },
     {
       href: config.whatsappPhone ? waLink(config.whatsappPhone) : null,
       label: "WhatsApp",
       Icon: WhatsAppIcon,
     },
+    ...(config.tiktokUrl ? [{ href: config.tiktokUrl, label: "TikTok", Icon: TikTokIcon }] : []),
   ];
+  const hasContact = config.whatsappPhone || config.publicPhone || config.publicEmail;
 
   return (
-    <footer className="relative overflow-hidden border-t border-[#ead8c6] bg-[#fffaf5] text-[#504844]">
-      <BotanicalDecoration />
-
-      <div className="relative mx-auto max-w-[1260px] px-5 pb-9 pt-10 sm:px-8 sm:pt-12 lg:px-10 lg:pb-10 lg:pt-11">
-        <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-[1.08fr_0.82fr_1fr_1.18fr] lg:gap-12">
-          <section>
-            <div className="max-w-[245px]">
-              <Logo />
-            </div>
-
-            <p className="mt-5 max-w-[270px] text-[12px] leading-5 text-[#6f6661]">
-              Moda femenina seleccionada con amor, para acompañarte en tu mejor versión,
-              todos los días.
+    <footer id="contacto" className="scroll-mt-44 bg-[#eeeee7] text-[#242b28]">
+      <div className="mx-auto max-w-[1440px] px-6 py-14 sm:px-10 lg:px-16 lg:py-20">
+        <div className="grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-[1.3fr_0.8fr_1fr_1.1fr]">
+          <div>
+            <Logo />
+            <p className="mt-6 max-w-[280px] text-base leading-relaxed">
+              Prendas que se sienten como vos. Una selección para acompañarte a tu manera.
             </p>
-          </section>
-
-          <section>
-            <SectionTitle>Navegación</SectionTitle>
-
-            <ul className="mt-5 space-y-2.5">
-              {NAV_LINKS.map((item, index) => (
-                <li key={`${item.label}-${index}`}>
-                  <Link
-                    href={item.href}
-                    className="text-[12px] text-[#5f5752] transition-colors hover:text-[#159aa0]"
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-
-              {INFO_ITEMS.map((item) => (
-                <li key={item}>
-                  <span className="text-[12px] text-[#5f5752]">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section>
-            <SectionTitle>Nuestras sucursales</SectionTitle>
-
-            {branches.length > 0 ? (
-              <ul className="mt-5 space-y-6">
-                {branches.slice(0, 2).map((branch, index) => (
-                  <li key={branch.id}>
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#f7e3dc] text-[#a76d5b]">
-                        <MapPin className="size-4" aria-hidden="true" />
-                      </span>
-
-                      <div className="pt-0.5">
-                        <p className="text-[12px] leading-5 text-[#5b524d]">
-                          {branch.address},
-                        </p>
-                        <p className="text-[12px] leading-5 text-[#5b524d]">
-                          {[branch.city, branch.province].filter(Boolean).join(" ")}
-                        </p>
-                      </div>
-                    </div>
-
-                    {index === 0 && (
-                      <div
-                        aria-hidden="true"
-                        className="ml-[52px] mt-5 h-px w-36 bg-[#e4bf95]"
-                      />
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="mt-5 space-y-6">
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#f7e3dc] text-[#a76d5b]">
-                    <MapPin className="size-4" aria-hidden="true" />
-                  </span>
-                  <div className="pt-0.5 text-[12px] leading-5 text-[#5b524d]">
-                    <p>Libertad 161,</p>
-                    <p>Río Tercero (Córdoba)</p>
-                  </div>
-                </div>
-
-                <div aria-hidden="true" className="ml-[52px] h-px w-36 bg-[#e4bf95]" />
-
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#f7e3dc] text-[#a76d5b]">
-                    <MapPin className="size-4" aria-hidden="true" />
-                  </span>
-                  <div className="pt-0.5 text-[12px] leading-5 text-[#5b524d]">
-                    <p>Av. Pistarini 141,</p>
-                    <p>Embalse</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
-
-          <section className="lg:pl-2">
-            <SectionTitle>Contactanos</SectionTitle>
-
-            <div className="mt-5 max-w-[285px] space-y-3">
-              {config.whatsappPhone && (
-                <Link
-                  href={waLink(config.whatsappPhone)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`WhatsApp: ${config.whatsappPhone}`}
-                  className="flex items-center gap-3 rounded-xl border border-[#f1ddd5] bg-[#fff7f2] px-4 py-3 transition-colors hover:bg-white"
-                >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#d8a96e] bg-white text-[#b57c49]">
-                    <WhatsAppIcon className="size-[17px]" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[12px] font-medium text-[#574e49]">
-                      {config.whatsappPhone}
-                    </span>
-                    <span className="mt-0.5 block text-[11px] text-[#756b65]">
-                      ¡Escribinos, estamos para ayudarte!
-                    </span>
-                  </span>
-                </Link>
-              )}
-
-              {config.publicPhone && (
-                <Link
-                  href={telHref(config.publicPhone)}
-                  className="flex items-center gap-3 rounded-xl border border-[#f1ddd5] bg-[#fff7f2] px-4 py-3 transition-colors hover:bg-white"
-                >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#d8a96e] bg-white text-[#b57c49]">
-                    <Phone className="size-[17px]" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[12px] font-medium text-[#574e49]">
-                      {config.publicPhone}
-                    </span>
-                    <span className="mt-0.5 block text-[11px] text-[#756b65]">Llamanos</span>
-                  </span>
-                </Link>
-              )}
-
-              {config.publicEmail && (
-                <Link
-                  href={`mailto:${config.publicEmail}`}
-                  className="flex items-center gap-3 rounded-xl border border-[#f1ddd5] bg-[#fff7f2] px-4 py-3 transition-colors hover:bg-white"
-                >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#d8a96e] bg-white text-[#b57c49]">
-                    <Mail className="size-[17px]" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[12px] font-medium text-[#574e49]">
-                      {config.publicEmail}
-                    </span>
-                    <span className="mt-0.5 block text-[11px] text-[#756b65]">Correo electrónico</span>
-                  </span>
-                </Link>
-              )}
-
-              {!config.whatsappPhone && !config.publicPhone && !config.publicEmail && (
-                <div className="rounded-xl border border-dashed border-[#ead4c9] bg-white/40 px-4 py-4">
-                  <p className="text-[11px] leading-5 text-[#8f837d]">
-                    Los datos de contacto aparecerán acá cuando los configures desde el panel.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-7">
-              <div className="lg:text-center">
-                <SectionTitle>Seguinos</SectionTitle>
-              </div>
-
-              <ul className="mt-5 grid max-w-[270px] grid-cols-3 gap-3">
+            <nav aria-label="Redes sociales" className="mt-6">
+              <h2 className="font-sans text-sm font-medium">Seguinos</h2>
+              <ul className="mt-3 flex flex-wrap gap-3">
                 {socialLinks.map(({ href, label, Icon }) => (
-                  <li key={label} className="min-w-0">
+                  <li key={label}>
                     {href ? (
                       <Link
                         href={href}
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label={label}
-                        className="group flex flex-col items-center gap-2 text-[10px] text-[#665c56]"
+                        title={label}
+                        className="flex size-11 items-center justify-center rounded-full bg-[#e1e4db] text-[#34483d] transition-colors hover:bg-[#34483d] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34483d]"
                       >
-                        <span className="flex size-11 items-center justify-center rounded-full bg-[#f5dfd8] text-[#302b29] transition duration-200 group-hover:-translate-y-0.5 group-hover:bg-[#efd0c8]">
-                          <Icon className="size-[19px]" />
-                        </span>
-                        <span className="truncate">{label}</span>
+                        <Icon className="size-5" />
                       </Link>
                     ) : (
-                      <div
-                        aria-label={`${label} no configurado`}
-                        className="flex flex-col items-center gap-2 text-[10px] text-[#9a8f89]"
+                      <span
+                        role="img"
+                        aria-label={`${label}, próximamente`}
+                        title={`${label} · próximamente`}
+                        className="flex size-11 items-center justify-center rounded-full bg-[#e1e4db] text-[#34483d]/60"
                       >
-                        <span className="flex size-11 items-center justify-center rounded-full bg-[#f7e9e4] text-[#6c625d]">
-                          <Icon className="size-[19px]" />
-                        </span>
-                        <span className="truncate">{label}</span>
-                      </div>
+                        <Icon className="size-5" />
+                      </span>
                     )}
                   </li>
                 ))}
               </ul>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <div
-        aria-hidden="true"
-        className="h-[2px] w-full bg-[linear-gradient(90deg,#ff2f86_0%,#ff2f86_18%,#16c7e9_18%,#16c7e9_39%,#76d10b_39%,#76d10b_61%,#ffd41b_61%,#ffd41b_79%,#ff8a00_79%,#ff8a00_100%)]"
-      />
-
-      <div className="relative border-t border-[#f3e9e3] bg-[#fffdfb]">
-        <div className="mx-auto grid max-w-[1260px] gap-4 px-5 py-5 text-[10px] text-[#716762] sm:px-8 lg:grid-cols-[1fr_auto_1fr] lg:items-center lg:px-10">
-          <p>
-            &copy; {new Date().getFullYear()} CHAIOBOUTIQUE. Todos los derechos reservados.
-          </p>
-
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 lg:justify-center">
-            <span>Términos y Condiciones</span>
-            <span className="hidden text-[#9a918c] sm:inline">|</span>
-            <span>Cambios y Devoluciones</span>
-            <span className="hidden text-[#9a918c] sm:inline">|</span>
-            <span>Política de Privacidad</span>
+            </nav>
           </div>
 
-          <p className="flex items-center gap-2 lg:justify-end">
-            Diseñado con <span className="text-[#d39a58]">♡</span> para vos.
-          </p>
+          <nav aria-label="Navegación del pie de página">
+            <h2 className="text-base font-semibold">Explorá Chaio</h2>
+            <ul className="mt-4">
+              {NAV_LINKS.map(({ href, label }) => (
+                <li key={href}>
+                  <Link href={href} className={linkClassName}>
+                    {label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <section aria-labelledby="footer-stores">
+            <h2 id="footer-stores" className="text-base font-semibold">
+              Encontranos
+            </h2>
+            {branches.length > 0 ? (
+              <ul className="mt-6 space-y-6">
+                {branches.map((branch) => (
+                  <li key={branch.id} className="flex items-start gap-3">
+                    <MapPin className="mt-1 size-4 shrink-0 text-[#34483d]" aria-hidden="true" />
+                    <div className="text-base leading-relaxed">
+                      <p className="font-medium">{branch.name}</p>
+                      <address className="mt-1 not-italic">
+                        {branch.address}
+                        <br />
+                        {[branch.city, branch.province].filter(Boolean).join(", ")}
+                      </address>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-6 text-base leading-relaxed">
+                Nuestra colección te espera en la tienda online, estés donde estés.
+              </p>
+            )}
+          </section>
+
+          <section aria-labelledby="footer-contact">
+            <h2 id="footer-contact" className="text-base font-semibold">
+              Hablemos
+            </h2>
+            {hasContact ? (
+              <ul className="mt-4 space-y-1">
+                {config.whatsappPhone && (
+                  <li>
+                    <Link
+                      href={waLink(config.whatsappPhone)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={linkClassName}
+                    >
+                      <WhatsAppIcon className="mr-3 size-4 shrink-0" />
+                      <span>Escribinos por WhatsApp</span>
+                    </Link>
+                  </li>
+                )}
+                {config.publicPhone && (
+                  <li>
+                    <Link href={telHref(config.publicPhone)} className={linkClassName}>
+                      <Phone className="mr-3 size-4 shrink-0" aria-hidden="true" />
+                      <span>{config.publicPhone}</span>
+                    </Link>
+                  </li>
+                )}
+                {config.publicEmail && (
+                  <li>
+                    <Link
+                      href={`mailto:${config.publicEmail}`}
+                      className={`${linkClassName} break-all`}
+                    >
+                      <Mail className="mr-3 size-4 shrink-0" aria-hidden="true" />
+                      <span>{config.publicEmail}</span>
+                    </Link>
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <div className="mt-6">
+                <p className="text-base leading-relaxed">
+                  Encontrá tu próximo favorito y descubrí todo lo nuevo en Chaio.
+                </p>
+                <Link href="/catalog" className={`${linkClassName} mt-2 font-medium`}>
+                  Conocé la colección
+                </Link>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <nav
+          aria-label="Información legal y ayuda"
+          className="mt-12 flex flex-wrap gap-x-7 gap-y-1 text-sm"
+        >
+          {POLICY_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="inline-flex min-h-11 items-center underline underline-offset-4"
+            >
+              {link.label}
+            </Link>
+          ))}
+          <Link
+            href="/recover-order"
+            className="inline-flex min-h-11 items-center underline underline-offset-4"
+          >
+            Recuperar mi pedido
+          </Link>
+        </nav>
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 text-sm leading-relaxed text-[#505b53]">
+          <p>&copy; {new Date().getFullYear()} CHAIOBOUTIQUE.</p>
+          <p>Hecho para que seas vos.</p>
         </div>
       </div>
     </footer>

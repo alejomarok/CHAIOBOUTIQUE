@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const replaceMock = vi.fn();
@@ -54,6 +55,13 @@ describe("LoginForm", () => {
 
   afterEach(cleanup);
 
+  it("prevents native credential submission before the browser attaches React handlers", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<LoginForm />);
+    expect(container.querySelector("form")).toHaveAttribute("method", "post");
+    expect(container.querySelector('button[type="submit"]')).toBeDisabled();
+  });
+
   it("renders email and password fields with Spanish labels", () => {
     render(<LoginForm />);
 
@@ -100,9 +108,7 @@ describe("LoginForm", () => {
         password: "password123",
       }),
     );
-    await waitFor(() =>
-      expect(resolvePostLoginDestinationActionMock).toHaveBeenCalledWith(null),
-    );
+    await waitFor(() => expect(resolvePostLoginDestinationActionMock).toHaveBeenCalledWith(null));
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/admin"));
     // The button must go back to its resting label — never left on
     // "Ingresando…" after navigation has already been decided.

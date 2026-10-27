@@ -41,6 +41,9 @@ export const PAYMENT_STATUS_LABELS_ES: Record<SalePaymentStatusValue, string> = 
   UNPAID: "Sin pagar",
   PARTIALLY_PAID: "Pago parcial",
   PAID: "Pagada",
+  PARTIALLY_REFUNDED: "Reembolso parcial",
+  REFUNDED: "Reembolsada",
+  CHARGED_BACK: "Contracargo",
 };
 
 // Same restrained 3-variant vocabulary as SaleStatus's own badge mapping in
@@ -55,6 +58,9 @@ export const PAYMENT_STATUS_BADGE_VARIANT: Record<
   UNPAID: "outline",
   PARTIALLY_PAID: "secondary",
   PAID: "default",
+  PARTIALLY_REFUNDED: "secondary",
+  REFUNDED: "secondary",
+  CHARGED_BACK: "secondary",
 };
 
 // Reference/comprobante field is only shown for methods where it's actually

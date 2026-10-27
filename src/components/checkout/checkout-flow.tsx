@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import { submitCheckoutAction } from "@/app/(public)/checkout/actions";
@@ -44,6 +45,8 @@ interface SavedAddress {
 }
 
 interface DeliveryMethodOptionDTO {
+  deliveryEstimate?: string | null;
+  postalCodes?: string | null;
   method: "PICKUP" | "HOME_DELIVERY";
   label: string;
   feeAmount: string;
@@ -110,6 +113,7 @@ export function CheckoutFlow({
     notes: "",
   });
   const [notes, setNotes] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Generated once per checkout session (not per submit) — a retry after a
   // network failure resubmits the SAME key, so the server recognizes and
@@ -119,7 +123,8 @@ export function CheckoutFlow({
 
   const homeDelivery = deliveryMethods.find((d) => d.method === "HOME_DELIVERY");
   const selectedDeliveryOption = deliveryMethods.find((d) => d.method === deliveryMethod);
-  const shippingFeeAmount = deliveryMethod === "HOME_DELIVERY" ? BigInt(homeDelivery?.feeAmount ?? "0") : 0n;
+  const shippingFeeAmount =
+    deliveryMethod === "HOME_DELIVERY" ? BigInt(homeDelivery?.feeAmount ?? "0") : 0n;
   // Live preview only — never authoritative; the server recomputes and
   // validates the real total independently on submit (see
   // modules/orders/order-core.ts's createOrderFromCart). Mirrors
@@ -129,7 +134,11 @@ export function CheckoutFlow({
   });
 
   function contactStepValid(): boolean {
-    return contact.firstName.trim().length > 0 && contact.lastName.trim().length > 0 && contact.email.trim().includes("@");
+    return (
+      contact.firstName.trim().length > 0 &&
+      contact.lastName.trim().length > 0 &&
+      contact.email.trim().includes("@")
+    );
   }
 
   function deliveryStepValid(): boolean {
@@ -163,9 +172,14 @@ export function CheckoutFlow({
 
   async function handleSubmit() {
     if (isSubmitting) return;
+    if (!termsAccepted) {
+      toast.error("Aceptá los términos y la política de privacidad para continuar.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       const result = await submitCheckoutAction({
+        termsAccepted: true,
         contact: {
           firstName: contact.firstName.trim(),
           lastName: contact.lastName.trim(),
@@ -234,7 +248,8 @@ export function CheckoutFlow({
         <div className="flex flex-col gap-4">
           {isAuthenticated && (
             <p className="text-muted-foreground text-sm">
-              Revisá tus datos de contacto para este pedido — podés editarlos sin que afecte tu perfil.
+              Revisá tus datos de contacto para este pedido — podés editarlos sin que afecte tu
+              perfil.
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
@@ -294,7 +309,9 @@ export function CheckoutFlow({
                   <RadioGroupItem value={option.method} />
                   <span className="font-medium">{option.label}</span>
                 </div>
-                <span className="text-muted-foreground text-sm">{option.feeDisplay ?? "Sin costo"}</span>
+                <span className="text-muted-foreground text-sm">
+                  {option.feeDisplay ?? "Sin costo"}
+                </span>
               </label>
             ))}
           </RadioGroup>
@@ -309,7 +326,11 @@ export function CheckoutFlow({
           {deliveryMethod === "HOME_DELIVERY" && (
             <div className="flex flex-col gap-4">
               {savedAddresses.length > 0 && (
-                <RadioGroup value={selectedAddressId} onValueChange={setSelectedAddressId} className="gap-2">
+                <RadioGroup
+                  value={selectedAddressId}
+                  onValueChange={setSelectedAddressId}
+                  className="gap-2"
+                >
                   {savedAddresses.map((address) => (
                     <label
                       key={address.id}
@@ -336,7 +357,9 @@ export function CheckoutFlow({
                     <Input
                       id="addr-street"
                       value={newAddress.street}
-                      onChange={(e) => setNewAddress((prev) => ({ ...prev, street: e.target.value }))}
+                      onChange={(e) =>
+                        setNewAddress((prev) => ({ ...prev, street: e.target.value }))
+                      }
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -344,7 +367,9 @@ export function CheckoutFlow({
                     <Input
                       id="addr-number"
                       value={newAddress.number}
-                      onChange={(e) => setNewAddress((prev) => ({ ...prev, number: e.target.value }))}
+                      onChange={(e) =>
+                        setNewAddress((prev) => ({ ...prev, number: e.target.value }))
+                      }
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -352,7 +377,9 @@ export function CheckoutFlow({
                     <Input
                       id="addr-floor"
                       value={newAddress.floor}
-                      onChange={(e) => setNewAddress((prev) => ({ ...prev, floor: e.target.value }))}
+                      onChange={(e) =>
+                        setNewAddress((prev) => ({ ...prev, floor: e.target.value }))
+                      }
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -360,7 +387,9 @@ export function CheckoutFlow({
                     <Input
                       id="addr-postal"
                       value={newAddress.postalCode}
-                      onChange={(e) => setNewAddress((prev) => ({ ...prev, postalCode: e.target.value }))}
+                      onChange={(e) =>
+                        setNewAddress((prev) => ({ ...prev, postalCode: e.target.value }))
+                      }
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -376,7 +405,9 @@ export function CheckoutFlow({
                     <Input
                       id="addr-province"
                       value={newAddress.province}
-                      onChange={(e) => setNewAddress((prev) => ({ ...prev, province: e.target.value }))}
+                      onChange={(e) =>
+                        setNewAddress((prev) => ({ ...prev, province: e.target.value }))
+                      }
                     />
                   </div>
                   <div className="flex flex-col gap-1.5 sm:col-span-2">
@@ -385,7 +416,9 @@ export function CheckoutFlow({
                       id="addr-notes"
                       placeholder="Timbre, entre calles, etc."
                       value={newAddress.notes}
-                      onChange={(e) => setNewAddress((prev) => ({ ...prev, notes: e.target.value }))}
+                      onChange={(e) =>
+                        setNewAddress((prev) => ({ ...prev, notes: e.target.value }))
+                      }
                     />
                   </div>
                 </div>
@@ -444,14 +477,20 @@ export function CheckoutFlow({
             )}
             {deliveryMethod === "HOME_DELIVERY" && selectedAddressId === NEW_ADDRESS_OPTION && (
               <p className="text-muted-foreground">
-                {[newAddress.street, newAddress.number].filter(Boolean).join(" ")}, {newAddress.city}
+                {[newAddress.street, newAddress.number].filter(Boolean).join(" ")},{" "}
+                {newAddress.city}
               </p>
             )}
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="checkout-notes">Notas para tu pedido (opcional)</Label>
-            <Textarea id="checkout-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Textarea
+              id="checkout-notes"
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
 
           <div className="bg-blush/50 flex flex-col gap-2 rounded-2xl p-5">
@@ -461,7 +500,9 @@ export function CheckoutFlow({
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Envío</span>
-              <span>{shippingFeeAmount > 0n ? selectedDeliveryOption?.feeDisplay : "Sin costo"}</span>
+              <span>
+                {shippingFeeAmount > 0n ? selectedDeliveryOption?.feeDisplay : "Sin costo"}
+              </span>
             </div>
             <div className="flex items-center justify-between border-t pt-2">
               <span className="font-medium">Total</span>
@@ -469,11 +510,36 @@ export function CheckoutFlow({
             </div>
           </div>
 
+          {deliveryMethod === "HOME_DELIVERY" && (
+            <p className="text-sm leading-6">
+              Plazo estimado: {selectedDeliveryOption?.deliveryEstimate}. Cobertura: códigos
+              postales {selectedDeliveryOption?.postalCodes}.
+            </p>
+          )}
+          <label className="flex min-h-11 items-start gap-3 text-sm leading-6">
+            <input
+              type="checkbox"
+              className="mt-1 size-5 shrink-0"
+              checked={termsAccepted}
+              onChange={(event) => setTermsAccepted(event.target.checked)}
+            />
+            <span>
+              Acepto los{" "}
+              <Link href="/terms" target="_blank" rel="noopener noreferrer" className="underline">
+                términos y condiciones
+              </Link>{" "}
+              y la{" "}
+              <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+                política de privacidad
+              </Link>
+              .
+            </span>
+          </label>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" disabled={isSubmitting} onClick={goBack}>
               Atrás
             </Button>
-            <Button type="button" disabled={isSubmitting} onClick={handleSubmit}>
+            <Button type="button" disabled={isSubmitting || !termsAccepted} onClick={handleSubmit}>
               {isSubmitting ? "Confirmando…" : "Confirmar pedido"}
             </Button>
           </div>

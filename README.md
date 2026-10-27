@@ -4,11 +4,14 @@ Women's fashion store platform: public ecommerce storefront, customer account ar
 administration panel, and point-of-sale — one modular-monolith Next.js application backed by
 PostgreSQL.
 
-**This repository currently contains the foundation, catalog, and inventory phases.** See
-[ROADMAP.md](./ROADMAP.md) for what's implemented vs. planned. There is a public product catalog,
-variant-level inventory across warehouses, and a CSV migration-import pipeline — but no
-suppliers, purchasing, customers, sales, payments, shipping, or invoicing yet; each of those
-still gets its own reviewed data model before implementation.
+The application includes catalog, customers, inventory, sales/POS, Mercado Pago checkout,
+order fulfillment, customer requests, transactional email, legal pages and manual/external
+fiscal records. ARCA automatic issuance remains homologation-only.
+
+**Production delivery:** follow [the Vercel release and operations guide](./docs/production-release.md)
+and [the readiness report](./docs/production-readiness.md). Complete the legal identity and
+commercial configuration, then verify real providers before opening the store. The dashboard
+at `/admin/settings/production` lists configuration gaps and failed notifications.
 
 ## Tech stack
 
@@ -26,7 +29,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full rationale behind these cho
 
 ## Prerequisites
 
-- Node.js 20.9+ (project developed against Node 22)
+- Node.js 22.14+ within the compatible Node 22 line
 - npm
 - A Supabase project (for `DATABASE_URL`/`DIRECT_URL`) — see [DATABASE.md](./DATABASE.md)
 - Docker (optional but recommended) for a local test database + Mailpit — see below
@@ -72,32 +75,32 @@ This starts:
   [DATABASE.md](./DATABASE.md#local-development-database-postgres-dev).
 - **postgres-test** on `localhost:56032` (`TEST_DATABASE_URL`) — used only by
   `npm run test:integration`/`test:migrations`/`test:e2e`, never by `npm run dev`.
-- **Mailpit** (SMTP on `localhost:1025`, web UI at http://localhost:8025) — password-reset emails
-  land there in dev, since no production email provider is wired up yet.
+- **Mailpit** (SMTP on `localhost:1025`, web UI at http://localhost:8025) captures local test
+  emails. Production uses a real SMTP relay with TLS and a verified sender domain.
 
 ## Available scripts
 
-| Command                           | Purpose                                                                                                                                        |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                     | Start the dev server — **always postgres-dev**, fail-closed, never Supabase                                                                  |
-| `npm run dev:local`               | Alias for `npm run dev`                                                                                                                       |
-| `npm run dev:remote -- --yes`     | Start the dev server against the **real Supabase database**, deliberately                                                                    |
-| `npm run build`                   | Production build                                                                                                                              |
-| `npm run start`                   | Start the production server                                                                                                                   |
-| `npm run lint`                    | ESLint                                                                                                                                         |
-| `npm run format` / `format:check` | Prettier write / check                                                                                                                        |
-| `npm run typecheck`               | `tsc --noEmit`                                                                                                                                 |
-| `npm run prisma:generate`         | Generate the Prisma client                                                                                                                    |
+| Command                           | Purpose                                                                                                                                                                       |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                     | Start the dev server — **always postgres-dev**, fail-closed, never Supabase                                                                                                   |
+| `npm run dev:local`               | Alias for `npm run dev`                                                                                                                                                       |
+| `npm run dev:remote -- --yes`     | Start the dev server against the **real Supabase database**, deliberately                                                                                                     |
+| `npm run build`                   | Production build                                                                                                                                                              |
+| `npm run start`                   | Start the production server                                                                                                                                                   |
+| `npm run lint`                    | ESLint                                                                                                                                                                        |
+| `npm run format` / `format:check` | Prettier write / check                                                                                                                                                        |
+| `npm run typecheck`               | `tsc --noEmit`                                                                                                                                                                |
+| `npm run prisma:generate`         | Generate the Prisma client                                                                                                                                                    |
 | `npm run prisma:migrate`          | `prisma migrate dev` against raw `DATABASE_URL`/`DIRECT_URL` — not for local dev, see [DATABASE.md](./DATABASE.md#commands-that-intentionally-still-use-the-raw-database_url) |
-| `npm run prisma:migrate:deploy`   | `prisma migrate deploy` — same caveat as above                                                                                                |
-| `npm run prisma:seed`             | Run the production-safe seed (against whatever `DATABASE_URL` currently is)                                                                   |
-| `npm run db:dev:up`               | Start the postgres-dev Docker container                                                                                                       |
-| `npm run db:dev:migrate`          | Apply migrations to `DEV_DATABASE_URL` (postgres-dev)                                                                                          |
-| `npm run db:dev:seed`             | Run the seed against `DEV_DATABASE_URL` (postgres-dev)                                                                                         |
-| `npm run db:test:migrate`         | Apply migrations to `TEST_DATABASE_URL`                                                                                                        |
-| `npm run test` / `test:unit`      | Unit tests (no database)                                                                                                                       |
-| `npm run test:integration`        | Integration tests, forced onto `TEST_DATABASE_URL`                                                                                             |
-| `npm run test:e2e`                | Playwright smoke tests, forced onto `TEST_DATABASE_URL`                                                                                        |
+| `npm run prisma:migrate:deploy`   | `prisma migrate deploy` — same caveat as above                                                                                                                                |
+| `npm run prisma:seed`             | Run the production-safe seed (against whatever `DATABASE_URL` currently is)                                                                                                   |
+| `npm run db:dev:up`               | Start the postgres-dev Docker container                                                                                                                                       |
+| `npm run db:dev:migrate`          | Apply migrations to `DEV_DATABASE_URL` (postgres-dev)                                                                                                                         |
+| `npm run db:dev:seed`             | Run the seed against `DEV_DATABASE_URL` (postgres-dev)                                                                                                                        |
+| `npm run db:test:migrate`         | Apply migrations to `TEST_DATABASE_URL`                                                                                                                                       |
+| `npm run test` / `test:unit`      | Unit tests (no database)                                                                                                                                                      |
+| `npm run test:integration`        | Integration tests, forced onto `TEST_DATABASE_URL`                                                                                                                            |
+| `npm run test:e2e`                | Playwright smoke tests, forced onto `TEST_DATABASE_URL`                                                                                                                       |
 
 ## Migrations and seeding
 

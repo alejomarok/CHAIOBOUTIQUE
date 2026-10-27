@@ -16,7 +16,7 @@
 // requirement.
 import { readFile } from "node:fs/promises";
 
-import forge from "node-forge";
+import { X509Certificate } from "node:crypto";
 
 import { env } from "@/lib/env-core";
 
@@ -108,19 +108,21 @@ export interface ArcaCertificateInfo {
 export async function getArcaCertificateInfo(): Promise<ArcaCertificateInfo> {
   const { certificatePem } = await readArcaCertificateFiles();
 
-  let certificate: forge.pki.Certificate;
+  let certificate: X509Certificate;
   try {
-    certificate = forge.pki.certificateFromPem(certificatePem);
+    certificate = new X509Certificate(certificatePem);
   } catch (error) {
-    throw new ArcaCertificateInvalidError(error instanceof Error ? error.message : "formato no reconocido");
+    throw new ArcaCertificateInvalidError(
+      error instanceof Error ? error.message : "formato no reconocido",
+    );
   }
 
-  const notBefore = certificate.validity.notBefore;
-  const notAfter = certificate.validity.notAfter;
-  const commonNameField = certificate.subject.getField("CN");
+  const notBefore = new Date(certificate.validFrom);
+  const notAfter = new Date(certificate.validTo);
+  const commonName = certificate.subject.match(/(?:^|\n)CN=([^\n]+)/)?.[1] ?? null;
 
   return {
-    subjectCommonName: commonNameField ? commonNameField.value : null,
+    subjectCommonName: commonName,
     notBefore,
     notAfter,
     isExpired: Date.now() < notBefore.getTime() || Date.now() > notAfter.getTime(),

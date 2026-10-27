@@ -56,6 +56,12 @@ export async function seedStoreConfiguration(input: {
   currency: string;
   locale: string;
   timezone: string;
+  fiscalLegalName?: string;
+  publicPhone?: string;
+  whatsappPhone?: string;
+  instagramUrl?: string;
+  facebookUrl?: string;
+  pickupInstructions?: string;
 }): Promise<void> {
   await prisma.storeConfiguration.upsert({
     where: { id: "main" },
@@ -120,7 +126,10 @@ export class SystemAccountNotSeededError extends Error {
 }
 
 export async function getSystemAccountUserId(): Promise<string> {
-  const account = await prisma.user.findFirst({ where: { isSystemAccount: true }, select: { id: true } });
+  const account = await prisma.user.findFirst({
+    where: { isSystemAccount: true },
+    select: { id: true },
+  });
   if (!account) throw new SystemAccountNotSeededError();
   return account.id;
 }

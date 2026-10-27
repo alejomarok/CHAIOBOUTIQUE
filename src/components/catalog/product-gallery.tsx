@@ -17,7 +17,7 @@ export function ProductGallery({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="bg-muted ring-border/60 relative aspect-[4/5] overflow-hidden rounded-2xl ring-1">
+      <div className="bg-muted relative aspect-[4/5] overflow-hidden">
         <ProductImage
           src={selected?.url ?? null}
           alt={selected?.altText ?? productName}
@@ -35,7 +35,7 @@ export function ProductGallery({
               onClick={() => setSelectedIndex(index)}
               aria-label={`Ver imagen ${index + 1} de ${productName}`}
               aria-current={index === selectedIndex}
-              className={`bg-muted relative aspect-square overflow-hidden rounded-lg ring-1 transition-all ${
+              className={`bg-muted relative aspect-square overflow-hidden ring-1 transition-[opacity,box-shadow] ${
                 index === selectedIndex
                   ? "ring-primary ring-2"
                   : "ring-border/60 opacity-80 hover:opacity-100"

@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import "../integration/guard";
 
 import { prisma } from "@/lib/db-core";
-import { listBranches } from "@/modules/store-branches/branch-core";
+import { listActiveBranches } from "@/modules/store-branches/branch-core";
 import { updateStoreConfiguration } from "@/modules/store-settings/service-core";
 
 import { ADMIN_FIXTURE } from "./fixture-credentials";
@@ -31,19 +31,21 @@ test.describe("public footer (real DB, real HTTP)", () => {
     });
   });
 
-  test("shows the real branches (always seeded) and hides contact/social when unconfigured", async ({
+  test("shows real branches and keeps unconfigured social icons visible without dead links", async ({
     page,
   }) => {
     await page.goto("/");
 
-    // The two real branches are always present — seeded reference data,
-    // never invented in the component itself. exact: true — the branch
-    // name "Río Tercero" is also a substring of its own city/province line
-    // ("Río Tercero, Córdoba"), which would otherwise match ambiguously.
-    await expect(page.getByText("Río Tercero", { exact: true })).toBeVisible();
-    await expect(page.getByText("Libertad 161")).toBeVisible();
+    // Only the current branch is public; Río Tercero has closed.
+    await expect(page.getByText("Río Tercero", { exact: true })).not.toBeVisible();
+    await expect(page.getByText("Libertad 161")).not.toBeVisible();
     await expect(page.getByText("Embalse", { exact: true })).toBeVisible();
     await expect(page.getByText("Av. Pistarini 141")).toBeVisible();
+
+    const socials = page.getByRole("navigation", { name: "Redes sociales" });
+    for (const label of ["Instagram", "Facebook", "WhatsApp"]) {
+      await expect(socials.getByRole("img", { name: `${label}, próximamente` })).toBeVisible();
+    }
 
     // Nothing configured yet — no dead placeholder links, no invented
     // contact info, no "Seguinos"/"Contacto" heading with nothing under it.
@@ -77,7 +79,9 @@ test.describe("public footer (real DB, real HTTP)", () => {
     await expect(phoneLink).toHaveAttribute("href", /^tel:/);
 
     // WhatsApp uses the configured number, opens safely in a new tab.
-    const waLink = page.getByRole("link", { name: /WhatsApp/ });
+    const waLink = page
+      .getByRole("navigation", { name: "Redes sociales" })
+      .getByRole("link", { name: "WhatsApp", exact: true });
     await expect(waLink).toBeVisible();
     await expect(waLink).toHaveAttribute("href", /^https:\/\/wa\.me\/5493571123456$/);
     await expect(waLink).toHaveAttribute("target", "_blank");
@@ -101,13 +105,15 @@ test.describe("public footer (real DB, real HTTP)", () => {
     await expect(page.getByRole("link", { name: "TikTok" })).not.toBeVisible();
 
     // No href="#" placeholders anywhere in the footer's social/contact area.
-    const hrefValues = await page.locator("footer a").evaluateAll((links) =>
-      links.map((link) => link.getAttribute("href")),
-    );
+    const hrefValues = await page
+      .locator("footer a")
+      .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
     expect(hrefValues).not.toContain("#");
   });
 
-  test("mobile viewport (375px): footer stacks cleanly with no horizontal overflow", async ({ page }) => {
+  test("mobile viewport (375px): footer stacks cleanly with no horizontal overflow", async ({
+    page,
+  }) => {
     const actor = await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_FIXTURE.email } });
     await updateStoreConfiguration(
       { publicPhone: "03571123456", instagramUrl: "https://instagram.com/chaioboutique" },
@@ -118,10 +124,12 @@ test.describe("public footer (real DB, real HTTP)", () => {
     await page.goto("/");
     await page.locator("footer").scrollIntoViewIfNeeded();
 
-    const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    const hasOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    );
     expect(hasOverflow).toBe(false);
 
-    await expect(page.getByText("Río Tercero", { exact: true })).toBeVisible();
+    await expect(page.getByText("Río Tercero", { exact: true })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Instagram" })).toBeVisible();
   });
 
@@ -132,7 +140,9 @@ test.describe("public footer (real DB, real HTTP)", () => {
   // accessibility guideline), not just a desktop-sized icon shrunk onto a
   // phone screen.
   for (const width of [1440, 1024, 768, 390]) {
-    test(`responsive at ${width}px: no horizontal overflow, branches and social links stay visible`, async ({ page }) => {
+    test(`responsive at ${width}px: no horizontal overflow, branches and social links stay visible`, async ({
+      page,
+    }) => {
       const actor = await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_FIXTURE.email } });
       await updateStoreConfiguration(
         {
@@ -154,7 +164,7 @@ test.describe("public footer (real DB, real HTTP)", () => {
       );
       expect(hasOverflow).toBe(false);
 
-      await expect(page.getByText("Río Tercero", { exact: true })).toBeVisible();
+      await expect(page.getByText("Río Tercero", { exact: true })).not.toBeVisible();
       await expect(page.getByText("Embalse", { exact: true })).toBeVisible();
       const instagramLink = page.getByRole("link", { name: "Instagram" });
       await expect(instagramLink).toBeVisible();
@@ -169,8 +179,10 @@ test.describe("public footer (real DB, real HTTP)", () => {
     });
   }
 
-  test("branches shown on the footer match the real admin-editable StoreBranch data", async ({ page }) => {
-    const branches = await listBranches();
+  test("branches shown on the footer match the real admin-editable StoreBranch data", async ({
+    page,
+  }) => {
+    const branches = await listActiveBranches();
     await page.goto("/catalog");
     for (const branch of branches) {
       await expect(page.getByText(branch.name, { exact: true })).toBeVisible();

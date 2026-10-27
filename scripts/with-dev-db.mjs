@@ -20,7 +20,7 @@ function assertSafeDevDatabase(devUrl) {
   try {
     parsed = new URL(devUrl);
   } catch {
-    throw new Error(`DEV_DATABASE_URL is not a valid URL: "${devUrl}".`);
+    throw new Error("DEV_DATABASE_URL is not a valid URL. Credentials are omitted.");
   }
 
   const host = parsed.hostname;

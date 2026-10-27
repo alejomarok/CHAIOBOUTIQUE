@@ -21,7 +21,8 @@ export default async function CheckoutPage() {
   const user = await getCurrentUser();
   const isCustomer = user?.roles.includes("CUSTOMER") ?? false;
 
-  let contactPrefill: { firstName: string; lastName: string; email: string; phone: string } | null = null;
+  let contactPrefill: { firstName: string; lastName: string; email: string; phone: string } | null =
+    null;
   let savedAddresses: {
     id: string;
     label: string | null;
@@ -76,6 +77,8 @@ export default async function CheckoutPage() {
           feeAmount: option.feeAmount.toString(),
           feeDisplay: option.feeAmount > 0n ? minorUnitsToDisplay(option.feeAmount) : null,
           pickupInstructions: option.pickupInstructions,
+          deliveryEstimate: option.deliveryEstimate,
+          postalCodes: option.postalCodes,
         }))}
       />
     </div>

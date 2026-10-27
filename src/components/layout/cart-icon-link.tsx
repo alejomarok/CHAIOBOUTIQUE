@@ -15,12 +15,12 @@ export async function CartIconLink() {
   const cart = await getCart();
 
   return (
-    <Button asChild variant="ghost" size="icon" className="relative">
+    <Button asChild variant="ghost" size="icon" className="relative size-11">
       <Link
         href="/cart"
         aria-label={cart.itemCount > 0 ? `Carrito, ${cart.itemCount} artículos` : "Carrito"}
       >
-        <ShoppingBag className="size-5" />
+        <ShoppingBag className="size-5" aria-hidden="true" />
         {cart.itemCount > 0 && (
           <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
             {cart.itemCount > 99 ? "99+" : cart.itemCount}

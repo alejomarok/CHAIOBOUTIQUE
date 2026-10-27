@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { isSafeInternalPath } from "@/lib/safe-redirect";
+import { contentSecurityPolicy } from "@/lib/security-headers";
 
 // Coarse gate only: an optimistic cookie-presence check, not a permission
 // check. The real authorization (requireUser/requirePermission, which can
@@ -10,9 +11,19 @@ import { isSafeInternalPath } from "@/lib/safe-redirect";
 // next/navigation's unauthorized()/forbidden() — see modules/auth. This is
 // deliberate: proxy runs on every matched request, so it should stay cheap.
 export function proxy(request: NextRequest) {
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const csp = contentSecurityPolicy(
+    nonce,
+    process.env.NODE_ENV === "development",
+    process.env.SUPABASE_URL,
+  );
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+  const protectedPath = /^\/(admin|pos|account)(\/|$)/.test(request.nextUrl.pathname);
   const hasSessionCookie = getSessionCookie(request);
 
-  if (!hasSessionCookie) {
+  if (protectedPath && !hasSessionCookie) {
     const loginUrl = new URL("/login", request.url);
     // request.nextUrl.pathname is already same-origin by construction (it's
     // Next's own matched route, never an external string) — this check is
@@ -25,9 +36,11 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/pos/:path*"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|images/).*)"],
 };

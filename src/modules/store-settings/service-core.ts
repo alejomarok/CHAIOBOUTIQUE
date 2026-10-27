@@ -35,6 +35,8 @@ function buildDefaultStoreConfiguration(): StoreConfiguration {
     locale: env.STORE_LOCALE,
     timezone: env.STORE_TIMEZONE,
     homeDeliveryFlatFeeAmount: null,
+    homeDeliveryPostalCodes: null,
+    homeDeliveryEstimate: null,
     pickupInstructions: null,
     publicPhone: null,
     whatsappPhone: null,
@@ -71,7 +73,9 @@ function buildDefaultStoreConfiguration(): StoreConfiguration {
 // the first time an authorized administrator explicitly saves settings
 // (fallback path) — never by this function.
 export async function getStoreConfiguration(): Promise<StoreConfiguration> {
-  const existing = await prisma.storeConfiguration.findUnique({ where: { id: STORE_CONFIGURATION_ID } });
+  const existing = await prisma.storeConfiguration.findUnique({
+    where: { id: STORE_CONFIGURATION_ID },
+  });
   if (existing) return existing;
 
   console.warn(
@@ -99,6 +103,8 @@ export interface UpdateStoreConfigurationInput {
   // schema comments. null clears the value (e.g. disabling home delivery);
   // undefined leaves it untouched.
   homeDeliveryFlatFeeAmount?: bigint | null;
+  homeDeliveryPostalCodes?: string | null;
+  homeDeliveryEstimate?: string | null;
   pickupInstructions?: string | null;
   // Phase — Public Footer Redesign. See the schema's own comments on these
   // fields — same null-clears/undefined-leaves-untouched posture as above.
@@ -148,6 +154,12 @@ export async function updateStoreConfiguration(
   // existing row; for a brand-new row it simply leaves the column at its
   // nullable default (NULL), same as a freshly-seeded row would have.
   const partialData = {
+    ...(input.homeDeliveryPostalCodes !== undefined
+      ? { homeDeliveryPostalCodes: input.homeDeliveryPostalCodes }
+      : {}),
+    ...(input.homeDeliveryEstimate !== undefined
+      ? { homeDeliveryEstimate: input.homeDeliveryEstimate }
+      : {}),
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.currency !== undefined ? { currency: input.currency } : {}),
     ...(input.locale !== undefined ? { locale: input.locale } : {}),
@@ -169,15 +181,21 @@ export async function updateStoreConfiguration(
     ...(input.fiscalDefaultPointOfSale !== undefined
       ? { fiscalDefaultPointOfSale: input.fiscalDefaultPointOfSale }
       : {}),
-    ...(input.issuerVatCondition !== undefined ? { issuerVatCondition: input.issuerVatCondition } : {}),
+    ...(input.issuerVatCondition !== undefined
+      ? { issuerVatCondition: input.issuerVatCondition }
+      : {}),
     ...(input.fiscalAddress !== undefined ? { fiscalAddress: input.fiscalAddress } : {}),
     ...(input.fiscalActivityStartDate !== undefined
       ? { fiscalActivityStartDate: input.fiscalActivityStartDate }
       : {}),
-    ...(input.fiscalGrossIncomeId !== undefined ? { fiscalGrossIncomeId: input.fiscalGrossIncomeId } : {}),
+    ...(input.fiscalGrossIncomeId !== undefined
+      ? { fiscalGrossIncomeId: input.fiscalGrossIncomeId }
+      : {}),
     ...(input.arcaPointOfSale !== undefined ? { arcaPointOfSale: input.arcaPointOfSale } : {}),
     ...(input.arcaEnvironment !== undefined ? { arcaEnvironment: input.arcaEnvironment } : {}),
-    ...(input.defaultTaxCategory !== undefined ? { defaultTaxCategory: input.defaultTaxCategory } : {}),
+    ...(input.defaultTaxCategory !== undefined
+      ? { defaultTaxCategory: input.defaultTaxCategory }
+      : {}),
   };
 
   // upsert, not update: getStoreConfiguration() is now read-only and never

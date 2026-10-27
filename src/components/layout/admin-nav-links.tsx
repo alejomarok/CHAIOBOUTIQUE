@@ -59,16 +59,23 @@ export function AdminNavLinks({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  // The longest matching destination owns nested detail/edit screens.
+  // Inventory's own subpages must not also activate its parent link.
+  const activeHref = groups
+    .flatMap((group) => group.items)
+    .filter(
+      (item) =>
+        pathname === item.href || (item.href !== "/admin" && pathname.startsWith(`${item.href}/`)),
+    )
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   return (
-    <nav className="flex flex-col gap-5">
+    <nav aria-label="Navegación de administración" className="flex flex-col gap-6">
       {groups.map((group) => (
         <div key={group.label} className="flex flex-col gap-1">
-          <p className="text-sidebar-foreground/55 px-3 text-xs font-semibold tracking-[0.1em] uppercase">
-            {group.label}
-          </p>
+          <p className="text-muted-foreground mb-1.5 px-3 text-xs font-medium">{group.label}</p>
           {group.items.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = activeHref === item.href;
             const Icon = ICON_MAP[item.iconName];
             return (
               <Link
@@ -77,13 +84,13 @@ export function AdminNavLinks({
                 onClick={onNavigate}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "focus-visible:ring-ring flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-offset-2 min-[1100px]:min-h-9 min-[1100px]:py-1.5",
                   isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    ? "bg-sidebar-accent text-sidebar-foreground font-medium"
+                    : "text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
                 )}
               >
-                <Icon className="size-4" />
+                <Icon className="size-4 shrink-0" aria-hidden="true" />
                 {item.label}
               </Link>
             );

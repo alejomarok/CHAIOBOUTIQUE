@@ -22,15 +22,17 @@ export function ReservationSchedulerCard() {
       </CardHeader>
       <CardContent>
         <ul className="flex flex-col gap-1 text-sm">
-          <li className="text-muted-foreground">Duración: {readiness.reservationWindowMinutes} minutos</li>
+          <li className="text-muted-foreground">
+            Duración: {readiness.reservationWindowMinutes} minutos
+          </li>
           <li className="text-muted-foreground">
             {readiness.internalEndpointConfigured ? "✓" : "✕"} Tarea automática:{" "}
-            {readiness.internalEndpointConfigured ? "Configurada" : "Pendiente"}
+            {readiness.internalEndpointConfigured ? "Endpoint listo" : "Pendiente"}
           </li>
         </ul>
         {!readiness.internalEndpointConfigured && (
           <p className="text-muted-foreground mt-2 text-xs">
-            Falta configurar INTERNAL_TASK_SECRET y un job programado que llame a
+            Falta configurar CRON_SECRET (Vercel) o INTERNAL_TASK_SECRET y una tarea que llame a
             /api/internal/expire-stale-orders en un intervalo menor a la duración de la reserva.
           </p>
         )}

@@ -39,6 +39,10 @@ const EXPECTED_TEST_DATABASE_NAME = "chaioboutique_test";
 // resolves foreign-key dependency order itself. Table names copied
 // verbatim from the applied migration.sql, not assumed.
 const ALL_APPLICATION_TABLES = [
+  "rate_limit",
+  "app_rate_limit",
+  "email_outbox",
+  "consumer_request",
   "user",
   "session",
   "account",

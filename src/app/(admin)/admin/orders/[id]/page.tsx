@@ -3,7 +3,14 @@ import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { minorUnitsToDisplay } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
 import { getSaleInvoicingSummary } from "@/modules/fiscal-documents/fiscal-document";
@@ -24,6 +31,10 @@ import {
 
 import { CancelOrderButton } from "./cancel-order-button";
 import { VerifyPaymentButton } from "./verify-payment-button";
+import { FulfillmentForm } from "@/components/orders/fulfillment-form";
+import { FULFILLMENT_TRANSITIONS } from "@/modules/orders/fulfillment-core";
+import { resolveAdjustmentAction } from "../actions";
+import { Button } from "@/components/ui/button";
 
 export const metadata = { title: "Detalle de pedido" };
 
@@ -55,7 +66,11 @@ function formatAddress(order: {
     .join(", ");
 }
 
-export default async function AdminOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AdminOrderDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const user = await requirePermission("orders.view");
   const canCancel = user.permissions.has("orders.cancel");
   const canManagePayments = user.permissions.has("orders.manage");
@@ -89,7 +104,9 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
               {ORDER_PAYMENT_STATUS_LABELS_ES[order.paymentStatus]}
             </Badge>
           </div>
-          <p className="text-muted-foreground mt-1 text-sm">{order.createdAt.toLocaleString("es-AR")}</p>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {order.createdAt.toLocaleString("es-AR")}
+          </p>
           <p className="mt-1 text-sm font-medium">Depósito: {order.warehouse.name}</p>
           {order.status === "PENDING_PAYMENT" && order.reservationExpiresAt && (
             <p className="text-sm">
@@ -97,16 +114,97 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
             </p>
           )}
         </div>
-        {canCancel && order.status === "PENDING_PAYMENT" && <CancelOrderButton orderId={order.id} />}
+        {canCancel && order.status === "PENDING_PAYMENT" && (
+          <CancelOrderButton orderId={order.id} />
+        )}
       </div>
 
       {order.requiresPaymentReview && (
         <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="text-destructive pt-6 text-sm font-medium">
-            Pago recibido, pero el pedido requiere revisión.
+            El pago de este pedido requiere revisión.
             {order.paymentReviewReason && (
               <p className="text-destructive/90 mt-1 font-normal">{order.paymentReviewReason}</p>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {canManagePayments && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Preparación y entrega</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="text-sm">
+              Los cambios de entrega quedan registrados y generan una notificación al cliente.
+            </p>
+            {!order.requiresPaymentReview &&
+              ["PAID", "PARTIALLY_REFUNDED"].includes(order.paymentStatus) && (
+                <FulfillmentForm
+                  key={order.status}
+                  orderId={order.id}
+                  options={(FULFILLMENT_TRANSITIONS[order.status] ?? [])
+                    .filter(
+                      (status) =>
+                        status !==
+                        (order.deliveryMethod === "PICKUP" ? "SHIPPED" : "READY_FOR_PICKUP"),
+                    )
+                    .map((value) => ({ value, label: ORDER_STATUS_LABELS_ES[value] }))}
+                />
+              )}
+            {order.trackingNumber && (
+              <p>
+                Seguimiento: {order.trackingCarrier} {order.trackingNumber}
+              </p>
+            )}
+            {order.requiresPaymentReview &&
+              ["REFUNDED", "PARTIALLY_REFUNDED", "CHARGED_BACK"].includes(order.paymentStatus) && (
+                <form action={resolveAdjustmentAction} className="grid gap-4">
+                  <input type="hidden" name="orderId" value={order.id} />
+                  <label className="grid gap-2">
+                    Resolución
+                    <select
+                      name="decision"
+                      className="bg-background min-h-11 rounded-md border px-3"
+                    >
+                      <option value="CANCEL">Cerrar la entrega por el ajuste</option>
+                      {order.paymentStatus === "PARTIALLY_REFUNDED" && (
+                        <option value="CONTINUE">Continuar la entrega acordada</option>
+                      )}
+                    </select>
+                  </label>
+                  <label className="flex items-start gap-3 text-sm leading-6">
+                    <input type="checkbox" name="confirmed" required className="mt-1 size-5" />
+                    Revisé el reembolso o contracargo. La devolución física y el stock se controlan
+                    por separado.
+                  </label>
+                  <Button className="min-h-11 justify-self-start" type="submit">
+                    Registrar resolución
+                  </Button>
+                </form>
+              )}
+          </CardContent>
+        </Card>
+      )}
+
+      {order.paymentAdjustments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Ajustes informados por Mercado Pago</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm">
+            {order.paymentAdjustments.map((adjustment) => (
+              <p key={adjustment.id}>
+                {adjustment.kind === "REFUND" ? "Reembolso" : "Contracargo"}:{" "}
+                {minorUnitsToDisplay(adjustment.amount, { currency: adjustment.currency })} ·{" "}
+                {adjustment.createdAt.toLocaleString("es-AR")}
+              </p>
+            ))}
+            <p>
+              El ajuste financiero no repone stock. Registrá un ajuste de inventario solo después de
+              recibir y revisar las prendas.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -181,14 +279,20 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
                       <p>{item.productNameSnapshot}</p>
                       {(item.sizeNameSnapshot || item.colorNameSnapshot) && (
                         <p className="text-muted-foreground text-xs">
-                          {[item.sizeNameSnapshot, item.colorNameSnapshot].filter(Boolean).join(" / ")}
+                          {[item.sizeNameSnapshot, item.colorNameSnapshot]
+                            .filter(Boolean)
+                            .join(" / ")}
                         </p>
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">{item.skuSnapshot}</TableCell>
                     <TableCell>{item.quantity}</TableCell>
-                    <TableCell>{minorUnitsToDisplay(item.unitPriceAmount, { currency: order.currency })}</TableCell>
-                    <TableCell>{minorUnitsToDisplay(item.totalAmount, { currency: order.currency })}</TableCell>
+                    <TableCell>
+                      {minorUnitsToDisplay(item.unitPriceAmount, { currency: order.currency })}
+                    </TableCell>
+                    <TableCell>
+                      {minorUnitsToDisplay(item.totalAmount, { currency: order.currency })}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -227,7 +331,9 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <p className="text-muted-foreground text-xs">Estado</p>
-                  <Badge variant={PAYMENT_ATTEMPT_STATUS_BADGE_VARIANT[latestPaymentAttempt.status]}>
+                  <Badge
+                    variant={PAYMENT_ATTEMPT_STATUS_BADGE_VARIANT[latestPaymentAttempt.status]}
+                  >
                     {PAYMENT_ATTEMPT_STATUS_LABELS_ES[latestPaymentAttempt.status]}
                   </Badge>
                 </div>
@@ -237,7 +343,11 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Importe</p>
-                  <p>{minorUnitsToDisplay(latestPaymentAttempt.amount, { currency: latestPaymentAttempt.currency })}</p>
+                  <p>
+                    {minorUnitsToDisplay(latestPaymentAttempt.amount, {
+                      currency: latestPaymentAttempt.currency,
+                    })}
+                  </p>
                 </div>
                 {latestPaymentAttempt.approvedAt && (
                   <div>
@@ -269,7 +379,9 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
                 )}
               </div>
               {latestPaymentAttempt.failureDetail && (
-                <p className="text-muted-foreground text-xs">{latestPaymentAttempt.failureDetail}</p>
+                <p className="text-muted-foreground text-xs">
+                  {latestPaymentAttempt.failureDetail}
+                </p>
               )}
               {canManagePayments && latestPaymentAttempt.providerPaymentId && (
                 <div>
@@ -293,7 +405,10 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
           ) : (
             <div className="flex flex-col gap-2 text-sm">
               {order.reservations.map((reservation) => (
-                <div key={reservation.id} className="border-border flex items-center justify-between rounded-lg border p-2">
+                <div
+                  key={reservation.id}
+                  className="border-border flex items-center justify-between rounded-lg border p-2"
+                >
                   <span>Cantidad: {reservation.quantity}</span>
                   <Badge variant="outline">
                     {RESERVATION_STATUS_LABELS_ES[reservation.status] ?? reservation.status}

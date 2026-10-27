@@ -30,7 +30,7 @@ export function Logo({
         alt=""
         width={iconSize}
         height={iconSize}
-        priority
+        preload
         className="shrink-0"
       />
       <span

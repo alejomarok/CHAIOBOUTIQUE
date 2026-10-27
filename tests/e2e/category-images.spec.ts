@@ -44,7 +44,9 @@ test.describe("admin-controlled category images (real DB, real HTTP)", () => {
 
   const TEST_IMAGE_PATH = path.join(__dirname, "..", "fixtures", "assets", "test-image.png");
 
-  test("creating a category with an image: preview, upload, and it appears on the admin list", async ({ page }) => {
+  test("creating a category with an image: preview, upload, and it appears on the admin list", async ({
+    page,
+  }) => {
     await loginAsAdmin(page);
     await page.goto("/admin/categories");
 
@@ -108,7 +110,9 @@ test.describe("admin-controlled category images (real DB, real HTTP)", () => {
     expect(afterDelete.imagePath).toBeNull();
   });
 
-  test("an invalid file selection is rejected client-side with a clear Spanish message", async ({ page }) => {
+  test("an invalid file selection is rejected client-side with a clear Spanish message", async ({
+    page,
+  }) => {
     const category = await makeCategoryWithProduct("E2E Invalido");
     await loginAsAdmin(page);
     await page.goto(`/admin/categories/${category.id}`);
@@ -122,15 +126,20 @@ test.describe("admin-controlled category images (real DB, real HTTP)", () => {
     // to infer a MIME type from a bare path (validateSelectedImageFile
     // checks file.type directly, so an inferred/empty type would make this
     // test meaningless either way).
-    await page.locator('input[type="file"]').first().setInputFiles({
-      name: "not-an-image.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("%PDF-1.4\n%%EOF\n"),
-    });
+    await page
+      .locator('input[type="file"]')
+      .first()
+      .setInputFiles({
+        name: "not-an-image.pdf",
+        mimeType: "application/pdf",
+        buffer: Buffer.from("%PDF-1.4\n%%EOF\n"),
+      });
     await expect(page.getByText("Formato no permitido. Usá JPG, PNG o WebP.")).toBeVisible();
   });
 
-  test("a role without categories.manage cannot reach the image upload/replace/delete controls", async ({ page }) => {
+  test("a role without categories.manage cannot reach the image upload/replace/delete controls", async ({
+    page,
+  }) => {
     const category = await makeCategoryWithProduct("E2E Sin Permiso");
 
     await page.goto("/login");
@@ -151,7 +160,9 @@ test.describe("admin-controlled category images (real DB, real HTTP)", () => {
     }
   });
 
-  test("home shows a category's explicit image, and it wins over a product image once configured", async ({ page }) => {
+  test("home shows a category's explicit image, and it wins over a product image once configured", async ({
+    page,
+  }) => {
     // Two categories with real published products, so the home tiles
     // section actually renders (it needs 2+ eligible categories — see
     // components/home/category-tiles.tsx).
@@ -187,22 +198,29 @@ test.describe("admin-controlled category images (real DB, real HTTP)", () => {
     await page.getByRole("button", { name: "Subir imagen" }).click();
     await expect(page.getByText("Imagen subida correctamente.")).toBeVisible();
 
-    const updatedWithImage = await prisma.category.findUniqueOrThrow({ where: { id: withImage.id } });
+    const updatedWithImage = await prisma.category.findUniqueOrThrow({
+      where: { id: withImage.id },
+    });
 
     await page.goto("/");
     // Scoped to the home tiles section specifically — the category's own
     // name ALSO appears as a header nav pill (showInStorefrontNav renders
     // it there too, by design), which a bare page-wide `a` locator would
     // ambiguously match as well.
-    const tilesSection = page.locator("section").filter({ hasText: "Explorá tu estilo ideal" });
+    const tilesSection = page.locator('section[aria-labelledby="categories-title"]');
     const tile = tilesSection.locator("a", { hasText: withImage.name });
     await expect(tile).toBeVisible();
     const img = tile.locator("img").first();
     // next/image rewrites the real src into its own optimizer URL
     // (/_next/image?url=<encoded original>&...) — assert against the
     // URL-encoded form of the real category image path, not the raw path.
-    const encodedImagePath = encodeURIComponent(`/api/e2e-storage/${updatedWithImage.imageBucket}/${updatedWithImage.imagePath}`);
-    await expect(img).toHaveAttribute("src", new RegExp(encodedImagePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const encodedImagePath = encodeURIComponent(
+      `/api/e2e-storage/${updatedWithImage.imageBucket}/${updatedWithImage.imagePath}`,
+    );
+    await expect(img).toHaveAttribute(
+      "src",
+      new RegExp(encodedImagePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
 
     // The category with no image configured still renders a tile (falls
     // back gracefully — never breaks the home) even though it has no

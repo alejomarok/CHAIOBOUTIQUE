@@ -1,3 +1,4 @@
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 import { CatalogFilters } from "@/components/catalog/catalog-filters";
@@ -10,6 +11,7 @@ import { listPublicProducts } from "@/modules/products/public-queries";
 export const metadata = { title: "Catálogo" };
 
 const PAGE_SIZE = 24;
+const MAX_PAGE = Math.floor(2_147_483_647 / PAGE_SIZE) + 1;
 
 interface CatalogPageProps {
   searchParams: Promise<{ q?: string; category?: string; sort?: string; page?: string }>;
@@ -21,30 +23,52 @@ function isValidSort(value: string | undefined): value is "newest" | "price_asc"
 
 export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const params = await searchParams;
-  const page = Math.max(1, Number(params.page) || 1);
+  const requestedPage = Number(params.page);
+  const page =
+    Number.isSafeInteger(requestedPage) && requestedPage > 0 && requestedPage <= MAX_PAGE
+      ? requestedPage
+      : 1;
   const sort = isValidSort(params.sort) ? params.sort : "newest";
   const defaultValues = { q: params.q, category: params.category, sort };
 
-  const [products, categories] = await Promise.all([
+  const [productResults, categories] = await Promise.all([
     listPublicProducts({
       search: params.q || undefined,
       categoryId: params.category || undefined,
       sort,
-      take: PAGE_SIZE,
+      take: PAGE_SIZE + 1,
       skip: (page - 1) * PAGE_SIZE,
     }),
     listCategories(),
   ]);
+
+  const hasNextPage = productResults.length > PAGE_SIZE;
+  const products = productResults.slice(0, PAGE_SIZE);
+
+  function pageHref(targetPage: number) {
+    const query = new URLSearchParams();
+    if (params.q) query.set("q", params.q);
+    if (params.category) query.set("category", params.category);
+    query.set("sort", sort);
+    if (targetPage > 1) query.set("page", String(targetPage));
+    return `/catalog?${query.toString()}`;
+  }
 
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const activeCategoryName = categories.find((c) => c.id === params.category)?.name;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
-      <div className="mb-8 flex flex-col gap-2">
-        <h1 className="font-heading text-3xl font-semibold sm:text-4xl">
-          {activeCategoryName ?? "Catálogo"}
+      <div className="border-border mb-10 flex flex-col gap-3 border-b pb-8">
+        <p className="text-muted-foreground text-[10px] font-medium tracking-[0.22em] uppercase">
+          CHAIOBOUTIQUE · Moda femenina
+        </p>
+        <h1 className="font-heading text-4xl font-normal tracking-tight sm:text-5xl">
+          {activeCategoryName ?? "La colección"}
         </h1>
+        <p className="text-muted-foreground max-w-lg text-sm leading-relaxed">
+          Encontrá esas prendas que se sienten tan bien como se ven.
+        </p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-muted-foreground text-sm">
             {products.length === 0
@@ -57,7 +81,7 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
 
       <div className="grid gap-10 md:grid-cols-[220px_1fr] lg:gap-12">
         <aside className="hidden md:block">
-          <div className="sticky top-24">
+          <div className="sticky top-44">
             <CatalogFilters categories={categoryOptions} defaultValues={defaultValues} />
           </div>
         </aside>
@@ -68,7 +92,9 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
                 No encontramos productos con esos filtros.
               </p>
               <Button asChild variant="outline">
-                <Link href="/catalog">Limpiar filtros</Link>
+                <Link href={page > 1 ? pageHref(page - 1) : "/catalog"}>
+                  {page > 1 ? "Volver a la página anterior" : "Limpiar filtros"}
+                </Link>
               </Button>
             </div>
           ) : (
@@ -77,6 +103,36 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
                 <ProductCard key={product.id} product={product} />
               ))}
             </div>
+          )}
+          {(page > 1 || hasNextPage) && (
+            <nav
+              aria-label="Paginación del catálogo"
+              className="border-border mt-12 flex flex-wrap items-center justify-between gap-4 border-t pt-6"
+            >
+              {page > 1 ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={pageHref(page - 1)} rel="prev">
+                    <ArrowLeft className="size-4" aria-hidden="true" />
+                    Anterior
+                  </Link>
+                </Button>
+              ) : (
+                <span />
+              )}
+              <span className="text-muted-foreground text-sm" aria-current="page">
+                Página {page}
+              </span>
+              {hasNextPage ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={pageHref(page + 1)} rel="next">
+                    Siguiente
+                    <ArrowRight className="size-4" aria-hidden="true" />
+                  </Link>
+                </Button>
+              ) : (
+                <span />
+              )}
+            </nav>
           )}
         </div>
       </div>

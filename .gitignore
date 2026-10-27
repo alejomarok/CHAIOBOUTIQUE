@@ -56,3 +56,6 @@ next-env.d.ts
 /playwright-report
 /test-results
 /blob-report
+
+# Local design directions, browser screenshots and temporary QA scripts
+/.taste-skill/

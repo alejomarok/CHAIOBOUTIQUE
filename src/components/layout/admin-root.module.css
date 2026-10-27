@@ -1,0 +1,85 @@
+.root.root {
+  --background: #f8f7f3;
+  --foreground: #242b28;
+  --card: #ffffff;
+  --card-foreground: #242b28;
+  --popover: #ffffff;
+  --popover-foreground: #242b28;
+  --primary: #242b28;
+  --primary-foreground: #ffffff;
+  --secondary: #eeefea;
+  --secondary-foreground: #34483d;
+  --muted: #f0f0eb;
+  --muted-foreground: #626962;
+  --accent: #eeefea;
+  --accent-foreground: #242b28;
+  --border: #e2e4de;
+  --input: #d3d7ce;
+  --ring: #34483d;
+  --sidebar: #f8f7f3;
+  --sidebar-foreground: #242b28;
+  --sidebar-primary: #242b28;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e9ebe5;
+  --sidebar-accent-foreground: #242b28;
+  --sidebar-border: #e2e4de;
+  --sidebar-ring: #34483d;
+  --chart-1: #34483d;
+  --chart-2: #929f91;
+  --chart-3: #b6beb1;
+  --chart-4: #d3d8cf;
+  --chart-5: #e7eae3;
+  --radius: 0.5rem;
+  color-scheme: light;
+}
+
+.root [data-slot="card"] {
+  box-shadow: none; /* taste-skill-ignore: shared card shadow reset, no shadow added. */
+}
+
+.root [data-slot="dropdown-menu-trigger"] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.root [data-slot="sheet-content"] > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.root [data-slot="dropdown-menu-item"] {
+  min-height: 36px;
+}
+
+.root [data-slot="table-head"] {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.root [data-slot="table-cell"] {
+  font-variant-numeric: tabular-nums;
+}
+
+.root input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+.root select,
+.root [role="combobox"] {
+  min-height: 40px;
+}
+
+@media (max-width: 1099px) {
+  .root input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  .root select,
+  .root [role="combobox"],
+  .root [data-slot="button"] {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root *,
+  .root *::before,
+  .root *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

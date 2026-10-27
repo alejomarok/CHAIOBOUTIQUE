@@ -12,7 +12,10 @@ import {
   updateBranch,
 } from "@/modules/store-branches/branch-core";
 import { seedStoreBranches } from "@/modules/store-branches/seed-core";
-import { getStoreConfiguration, updateStoreConfiguration } from "@/modules/store-settings/service-core";
+import {
+  getStoreConfiguration,
+  updateStoreConfiguration,
+} from "@/modules/store-settings/service-core";
 
 describe("store settings — contact/social fields (Phase: Public Footer Redesign, real DB)", () => {
   const createdUserIds: string[] = [];
@@ -122,14 +125,11 @@ describe("store branches (Phase: Public Footer Redesign, real DB)", () => {
     return actor;
   }
 
-  it("seeds exactly the two real CHAIOBOUTIQUE branches with their real addresses", async () => {
+  it("seeds the current Embalse branch and leaves Río Tercero inactive", async () => {
     await seedStoreBranches();
 
-    const rioTercero = await prisma.storeBranch.findUniqueOrThrow({ where: { code: "rio-tercero" } });
-    expect(rioTercero.name).toBe("Río Tercero");
-    expect(rioTercero.address).toBe("Libertad 161");
-    expect(rioTercero.city).toBe("Río Tercero");
-    expect(rioTercero.province).toBe("Córdoba");
+    const activeBranches = await listActiveBranches();
+    expect(activeBranches.some((branch) => branch.code === "rio-tercero")).toBe(false);
 
     const embalse = await prisma.storeBranch.findUniqueOrThrow({ where: { code: "embalse" } });
     expect(embalse.name).toBe("Embalse");
@@ -141,23 +141,28 @@ describe("store branches (Phase: Public Footer Redesign, real DB)", () => {
   it("seeding is idempotent — never creates duplicates, never overwrites an admin's later edit", async () => {
     await seedStoreBranches();
     const actor = await makeActor();
-    const branch = await prisma.storeBranch.findUniqueOrThrow({ where: { code: "rio-tercero" } });
+    const branch = await prisma.storeBranch.findUniqueOrThrow({ where: { code: "embalse" } });
     await updateBranch(
       branch.id,
-      { name: "Río Tercero (renombrada)", address: branch.address, city: branch.city, province: branch.province },
+      {
+        name: "Embalse (renombrada)",
+        address: branch.address,
+        city: branch.city,
+        province: branch.province,
+      },
       actor.id,
     );
 
     const result = await seedStoreBranches();
     expect(result.createdCount).toBe(0);
 
-    const stillRenamed = await prisma.storeBranch.findUniqueOrThrow({ where: { code: "rio-tercero" } });
-    expect(stillRenamed.name).toBe("Río Tercero (renombrada)"); // not clobbered by the re-seed
+    const stillRenamed = await prisma.storeBranch.findUniqueOrThrow({ where: { code: "embalse" } });
+    expect(stillRenamed.name).toBe("Embalse (renombrada)"); // not clobbered by the re-seed
 
     // Revert for other tests/files that assume the real seeded name.
     await updateBranch(
       branch.id,
-      { name: "Río Tercero", address: branch.address, city: branch.city, province: branch.province },
+      { name: "Embalse", address: branch.address, city: branch.city, province: branch.province },
       actor.id,
     );
   });
@@ -169,7 +174,12 @@ describe("store branches (Phase: Public Footer Redesign, real DB)", () => {
 
     const updated = await updateBranch(
       branch.id,
-      { name: "Embalse Centro", address: "Nueva Dirección 999", city: "Embalse", province: "Córdoba" },
+      {
+        name: "Embalse Centro",
+        address: "Nueva Dirección 999",
+        city: "Embalse",
+        province: "Córdoba",
+      },
       actor.id,
     );
     expect(updated.address).toBe("Nueva Dirección 999");

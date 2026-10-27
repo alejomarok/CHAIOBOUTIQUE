@@ -6,9 +6,8 @@ import { createHash, randomBytes } from "node:crypto";
 
 // A fresh, high-entropy bearer token for the /order/[token] confirmation
 // route — 256 bits (crypto.randomBytes(32)), same entropy as
-// Cart.anonymousToken. Returned to the caller exactly ONCE, at Order
-// creation; only its hash is ever persisted — see hashOrderAccessToken and
-// Order.accessTokenHash's own schema comment.
+// Cart.anonymousToken. Lookup uses only its hash. A separately encrypted copy
+// supports private email recovery without retaining a plaintext credential.
 export function generateOrderAccessToken(): string {
   return randomBytes(32).toString("base64url");
 }

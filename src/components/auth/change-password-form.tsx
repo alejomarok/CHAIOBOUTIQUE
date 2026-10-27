@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { useFormReady } from "@/components/auth/use-form-ready";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -25,6 +26,7 @@ const changePasswordSchema = z.object({
 type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
 export function ChangePasswordForm() {
+  const isFormReady = useFormReady();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<ChangePasswordInput>({
@@ -52,7 +54,7 @@ export function ChangePasswordForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+      <form method="post" onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <FormField
           control={form.control}
           name="currentPassword"
@@ -79,7 +81,7 @@ export function ChangePasswordForm() {
             </FormItem>
           )}
         />
-        <Button type="submit" disabled={isSubmitting} className="mt-2 self-start">
+        <Button type="submit" disabled={!isFormReady || isSubmitting} className="mt-2 self-start">
           {isSubmitting ? "Guardando…" : "Cambiar contraseña"}
         </Button>
       </form>

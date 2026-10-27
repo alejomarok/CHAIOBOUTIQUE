@@ -38,6 +38,9 @@ const envSchema = z.object({
 
   // Better Auth
   BETTER_AUTH_SECRET: z.string().min(1, "BETTER_AUTH_SECRET is required"),
+  DATA_ENCRYPTION_KEY: optional(
+    z.string().regex(/^[a-fA-F0-9]{64}$/, "Use a 32-byte hexadecimal encryption key"),
+  ),
   BETTER_AUTH_URL: z.url("BETTER_AUTH_URL must be a valid URL"),
 
   // Supabase Storage — optional here; SupabaseStorageProvider validates its
@@ -113,6 +116,7 @@ const envSchema = z.object({
   // no way to invoke it without deliberately configuring this. Never
   // NEXT_PUBLIC_, never logged.
   INTERNAL_TASK_SECRET: optional(z.string().min(16)),
+  CRON_SECRET: optional(z.string().min(16)),
 
   // ARCA (WSAA/WSFEv1) homologation certificate — Phase: ARCA Homologation
   // — Real WSAA + WSFEv1 Integration. FILE PATHS, never the raw PEM
@@ -153,7 +157,38 @@ const envSchema = z.object({
   RESEND_API_KEY: optional(z.string().min(1)),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const productionSchema = envSchema.superRefine((value, ctx) => {
+  if (value.NODE_ENV !== "production") return;
+  if (value.E2E_TEST_MODE)
+    ctx.addIssue({
+      code: "custom",
+      path: ["E2E_TEST_MODE"],
+      message: "Test providers are forbidden in production",
+    });
+  if (!value.DATA_ENCRYPTION_KEY)
+    ctx.addIssue({
+      code: "custom",
+      path: ["DATA_ENCRYPTION_KEY"],
+      message: "A persistent encryption key is required in production",
+    });
+  if (value.BETTER_AUTH_SECRET.length < 32)
+    ctx.addIssue({
+      code: "custom",
+      path: ["BETTER_AUTH_SECRET"],
+      message: "Production secrets require at least 32 characters",
+    });
+  for (const field of ["BETTER_AUTH_URL", "NEXT_PUBLIC_APP_URL"] as const) {
+    const url = new URL(value[field]);
+    if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [field],
+        message: "A public production URL must use HTTPS",
+      });
+    }
+  }
+});
+const parsed = productionSchema.safeParse(process.env);
 
 if (!parsed.success) {
   console.error("Invalid environment variables:", z.treeifyError(parsed.error));

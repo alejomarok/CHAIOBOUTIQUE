@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
+import { useFormReady } from "@/components/auth/use-form-ready";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -25,6 +26,7 @@ import { loginSchema, type LoginInput } from "@/modules/auth/schemas";
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isFormReady = useFormReady();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<LoginInput>({
@@ -33,7 +35,7 @@ export function LoginForm() {
   });
 
   async function onSubmit(values: LoginInput) {
-    // Defense in depth beyond `disabled={isSubmitting}` on the button: a
+    // Defense in depth beyond `disabled={!isFormReady || isSubmitting}` on the button: a
     // second submit landing in the gap before that re-render must not start
     // a second concurrent sign-in.
     if (isSubmitting) return;
@@ -119,7 +121,7 @@ export function LoginForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+      <form method="post" onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <FormField
           control={form.control}
           name="email"
@@ -154,7 +156,7 @@ export function LoginForm() {
             </FormItem>
           )}
         />
-        <Button type="submit" disabled={isSubmitting} className="mt-2">
+        <Button type="submit" disabled={!isFormReady || isSubmitting} className="mt-2">
           {isSubmitting ? "Ingresando…" : "Iniciar sesión"}
         </Button>
       </form>

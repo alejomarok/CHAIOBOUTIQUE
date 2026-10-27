@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +76,11 @@ describe("certificate-core", () => {
   it("reports isExpired:false for a currently-valid certificate and extracts its common name", async () => {
     const certPath = join(tmpDir, "valid.pem");
     const keyPath = join(tmpDir, "valid.key");
-    writeFileSync(certPath, generateSelfSignedCertPem(new Date(Date.now() + 24 * 60 * 60 * 1000)), "utf8");
+    writeFileSync(
+      certPath,
+      generateSelfSignedCertPem(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+      "utf8",
+    );
     writeFileSync(keyPath, "placeholder — never read by getArcaCertificateInfo", "utf8");
     env.ARCA_CERTIFICATE_PATH = certPath;
     env.ARCA_PRIVATE_KEY_PATH = keyPath;
@@ -88,7 +93,11 @@ describe("certificate-core", () => {
   it("reports isExpired:true for an already-expired certificate", async () => {
     const certPath = join(tmpDir, "expired.pem");
     const keyPath = join(tmpDir, "expired.key");
-    writeFileSync(certPath, generateSelfSignedCertPem(new Date(Date.now() - 60 * 60 * 1000)), "utf8");
+    writeFileSync(
+      certPath,
+      generateSelfSignedCertPem(new Date(Date.now() - 60 * 60 * 1000)),
+      "utf8",
+    );
     writeFileSync(keyPath, "placeholder", "utf8");
     env.ARCA_CERTIFICATE_PATH = certPath;
     env.ARCA_PRIVATE_KEY_PATH = keyPath;

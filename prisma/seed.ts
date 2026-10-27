@@ -96,6 +96,13 @@ async function main() {
     currency: env.STORE_CURRENCY,
     locale: env.STORE_LOCALE,
     timezone: env.STORE_TIMEZONE,
+    fiscalLegalName: "SILVINA IVANA DANI",
+    publicPhone: "+5493571319469",
+    whatsappPhone: "+5493571319469",
+    instagramUrl: "https://www.instagram.com/chaioboutique/",
+    facebookUrl: "https://web.facebook.com/profile.php?id=100037192312370",
+    pickupInstructions:
+      "Retiro en Embalse, Av. Pistarini 141, Córdoba. Coordiná el horario por WhatsApp.",
   });
   console.log("Seeded base store configuration.");
 

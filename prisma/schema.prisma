@@ -332,6 +332,8 @@ model StoreConfiguration {
   // delivery at a real, flat, admin-configured price. See this phase's
   // documented "prefer a proper configurable amount" shipping-cost policy.
   homeDeliveryFlatFeeAmount BigInt?
+  homeDeliveryPostalCodes String?
+  homeDeliveryEstimate String?
   // Free-text shown on checkout when PICKUP is selected — e.g. an address
   // and/or hours. Null means "not configured yet": checkout shows a neutral
   // "te contactaremos para coordinar el retiro" message instead of
@@ -1564,6 +1566,8 @@ model Sale {
   // field here, never derives itself from this one.
   paidAmount    BigInt            @default(0)
   paymentStatus SalePaymentStatus @default(UNPAID)
+  refundedAmount BigInt @default(0)
+  chargebackAmount BigInt @default(0)
 
   notes String?
 
@@ -1587,6 +1591,7 @@ model Sale {
 
   items           SaleItem[]
   payments        SalePayment[]
+  paymentAdjustments ProviderPaymentAdjustment[]
   fiscalDocuments FiscalDocument[]
 
   @@index([customerId])
@@ -1757,6 +1762,9 @@ enum SalePaymentStatus {
   UNPAID
   PARTIALLY_PAID
   PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CHARGED_BACK
 }
 
 // One individual SalePayment row's own lifecycle — ACTIVE (counts toward
@@ -2133,6 +2141,9 @@ enum OrderPaymentStatus {
   UNPAID
   PARTIALLY_PAID
   PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CHARGED_BACK
 }
 
 enum DeliveryMethod {
@@ -2249,6 +2260,17 @@ model Order {
   // An authenticated owner may additionally reach their own Order via
   // session ownership (Order.userId match) with no token at all.
   accessTokenHash String @unique
+  // Encrypted at rest; allows reliable email delivery without rotating links on retry.
+  accessTokenEncrypted String?
+  checkoutCartId String?
+  termsVersion String?
+  privacyVersion String?
+  policyAcceptedAt DateTime?
+  trackingCarrier String?
+  trackingNumber String?
+  trackingUrl String?
+  shippedAt DateTime?
+  deliveredAt DateTime?
 
   // Client-generated (crypto.randomUUID() at checkout-page-mount time,
   // resubmitted unchanged on retry) — protects against double-click/
@@ -2306,6 +2328,8 @@ model Order {
   items           OrderItem[]
   reservations    InventoryReservation[]
   paymentAttempts OrderPaymentAttempt[]
+  paymentAdjustments ProviderPaymentAdjustment[]
+  notifications EmailOutbox[]
   // Implicit 1:1 back-relation — see Sale.orderId's own comment for the
   // DB-level "at most one Sale per Order" guarantee this is built on. Null
   // until finalizePaidOrder successfully creates one.
@@ -2495,6 +2519,77 @@ enum PaymentAttemptProvider {
 // Order.requiresPaymentReview (a separate operational-exception axis — see
 // that field's own comment) — this is specifically "what did Mercado Pago
 // last report for this preference".
+model RateLimit {
+  id String @id @default(cuid())
+  key String @unique
+  count Int
+  lastRequest BigInt
+  @@index([lastRequest])
+  @@map("rate_limit")
+}
+
+model AppRateLimit {
+  key String @id
+  count Int
+  expiresAt DateTime
+  @@index([expiresAt])
+  @@map("app_rate_limit")
+}
+
+model ProviderPaymentAdjustment {
+  id String @id @default(cuid())
+  eventKey String @unique
+  orderId String
+  saleId String
+  providerPaymentId String
+  kind String
+  amount BigInt
+  currency String
+  createdAt DateTime @default(now())
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  @@index([saleId])
+  @@index([orderId])
+  @@index([providerPaymentId, kind])
+  @@map("provider_payment_adjustment")
+}
+
+model EmailOutbox {
+  id String @id @default(cuid())
+  eventKey String @unique
+  orderId String?
+  recipient String?
+  encryptedPayload String?
+  status String @default("PENDING")
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  lockedUntil DateTime?
+  deliveredAt DateTime?
+  lastErrorCode String?
+  createdAt DateTime @default(now())
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  @@index([status, availableAt])
+  @@map("email_outbox")
+}
+
+model ConsumerRequest {
+  id String @id @default(cuid())
+  code String @unique
+  kind String
+  fullName String
+  email String
+  phone String?
+  orderCode String?
+  message String?
+  status String @default("PENDING")
+  resolution String?
+  resolvedAt DateTime?
+  resolvedById String?
+  createdAt DateTime @default(now())
+  @@index([status, createdAt])
+  @@map("consumer_request")
+}
+
 enum PaymentAttemptStatus {
   // Preference created at Mercado Pago; no payment made against it yet.
   CREATED

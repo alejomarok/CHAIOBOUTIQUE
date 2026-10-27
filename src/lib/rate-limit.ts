@@ -1,4 +1,6 @@
 import "server-only";
+import { env } from "@/lib/env-core";
+import { createDatabaseRateLimiter } from "@/lib/database-rate-limit";
 
 export interface RateLimitResult {
   success: boolean;
@@ -10,11 +12,7 @@ export interface RateLimiter {
   check(key: string): Promise<RateLimitResult>;
 }
 
-// In-memory only — resets on restart/redeploy and does NOT share state
-// across multiple serverless instances. This is a working interface, not a
-// production-ready limiter: no route calls it yet. Before production,
-// implement RateLimiter against a shared store (e.g. Upstash Redis) and
-// apply it to the auth endpoints (login, forgot-password) — see SECURITY.md.
+// Local/test fallback only. Production uses atomic Postgres counters shared by all instances.
 class InMemoryRateLimiter implements RateLimiter {
   private readonly hits = new Map<string, { count: number; resetAt: number }>();
 
@@ -42,5 +40,7 @@ class InMemoryRateLimiter implements RateLimiter {
 }
 
 export function createRateLimiter(limit: number, windowMs: number): RateLimiter {
-  return new InMemoryRateLimiter(limit, windowMs);
+  return env.NODE_ENV === "production"
+    ? createDatabaseRateLimiter(limit, windowMs)
+    : new InMemoryRateLimiter(limit, windowMs);
 }

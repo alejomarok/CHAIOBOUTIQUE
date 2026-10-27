@@ -5,7 +5,11 @@ import { getInvoicingStatusForSales } from "@/modules/fiscal-documents/fiscal-do
 import { SALE_INVOICING_STATUS_LABELS_ES } from "@/modules/fiscal-documents/labels";
 import { buildSalesReportCsv, buildSalesReportDetailCsv } from "@/modules/sales/csv-export-core";
 import { PAYMENT_STATUS_LABELS_ES } from "@/modules/sales/payment-labels";
-import { deriveSaleOrigin, listSalesForReport, listSaleItemDetailRows } from "@/modules/sales/report";
+import {
+  deriveSaleOrigin,
+  listSalesForReport,
+  listSaleItemDetailRows,
+} from "@/modules/sales/report";
 import { getStoreConfiguration } from "@/modules/store-settings/service";
 
 import { parseSalesConsultationFilters, type SalesConsultationSearchParams } from "./search-params";
@@ -14,7 +18,11 @@ import { parseSalesConsultationFilters, type SalesConsultationSearchParams } fro
 // view/export (this phase's explicit "do not create audit records merely
 // because someone viewed a report" rule), and never touches commercial data.
 
-const STATUS_LABELS_ES = { DRAFT: "Borrador", CONFIRMED: "Confirmada", CANCELLED: "Cancelada" } as const;
+const STATUS_LABELS_ES = {
+  DRAFT: "Borrador",
+  CONFIRMED: "Confirmada",
+  CANCELLED: "Cancelada",
+} as const;
 const ORIGIN_LABELS_ES = { POS: "Venta en local", ONLINE: "Venta online" } as const;
 
 // Bounded — an export is still a reporting action, never an unbounded full-
@@ -42,12 +50,19 @@ export async function exportSalesReportCsvAction(
       origin: ORIGIN_LABELS_ES[deriveSaleOrigin(sale)],
       statusLabel: STATUS_LABELS_ES[sale.status],
       paymentStatusLabel: PAYMENT_STATUS_LABELS_ES[sale.paymentStatus],
-      invoicingStatusLabel: SALE_INVOICING_STATUS_LABELS_ES[invoicingStatusBySale.get(sale.id) ?? "NOT_INVOICED"],
+      invoicingStatusLabel:
+        SALE_INVOICING_STATUS_LABELS_ES[invoicingStatusBySale.get(sale.id) ?? "NOT_INVOICED"],
       subtotalAmount: sale.subtotalAmount,
       discountTotalAmount: sale.discountTotalAmount,
       totalAmount: sale.totalAmount,
       paidAmount: sale.paidAmount,
-      remainingAmount: sale.totalAmount - sale.paidAmount > 0n ? sale.totalAmount - sale.paidAmount : 0n,
+      remainingAmount: ["REFUNDED", "PARTIALLY_REFUNDED", "CHARGED_BACK"].includes(
+        sale.paymentStatus,
+      )
+        ? 0n
+        : sale.totalAmount - sale.paidAmount > 0n
+          ? sale.totalAmount - sale.paidAmount
+          : 0n,
       sellerName: sale.createdBy.name,
     })),
   );

@@ -4,6 +4,7 @@ import { finalizePaidOrder } from "@/modules/orders/order-core";
 
 import { getMercadoPagoClient } from "./client-core";
 import { mapMercadoPagoPaymentStatus } from "./status-mapping-core";
+import { recordProviderAdjustment } from "./adjustments-core";
 
 // Reusable server-side reconciliation service — see this integration's
 // "payment reconciliation service" requirement. The webhook route
@@ -67,7 +68,9 @@ async function resolveAttempt(orderId: string, providerPaymentId: string) {
 // the Order's real, authoritative totalAmount/currency — never the
 // notification) is the actual anti-tampering check beyond bare
 // external_reference matching.
-export async function reconcileMercadoPagoPayment(providerPaymentId: string): Promise<ReconcileResult> {
+export async function reconcileMercadoPagoPayment(
+  providerPaymentId: string,
+): Promise<ReconcileResult> {
   const client = getMercadoPagoClient();
   const payment = await client.getPayment(providerPaymentId);
   if (!payment || !payment.externalReference) {
@@ -79,6 +82,20 @@ export async function reconcileMercadoPagoPayment(providerPaymentId: string): Pr
 
   const attempt = await resolveAttempt(order.id, payment.id);
   if (!attempt) return { outcome: "not_found" };
+
+  if (
+    ["refunded", "charged_back"].includes(payment.status) ||
+    (payment.refundedAmount ?? 0n) > 0n
+  ) {
+    const sale = await prisma.sale.findUnique({
+      where: { orderId: order.id },
+      select: { id: true },
+    });
+    if (sale) {
+      await recordProviderAdjustment(order.id, payment);
+      return { outcome: "refunded", orderId: order.id };
+    }
+  }
 
   // Sticky — see PaymentAttemptStatus.APPROVED's own schema comment: never
   // regress an already-APPROVED attempt, regardless of what a late/
@@ -140,9 +157,14 @@ export async function reconcileMercadoPagoPayment(providerPaymentId: string): Pr
         entityId: order.id,
         metadata: { saleId: result.sale?.id ?? null },
       });
+      if ((payment.refundedAmount ?? 0n) > 0n) {
+        await recordProviderAdjustment(order.id, payment);
+        return { outcome: "refunded", orderId: order.id };
+      }
       return { outcome: "approved_finalized", orderId: order.id };
     }
-    if (result.outcome === "already_finalized") return { outcome: "already_finalized", orderId: order.id };
+    if (result.outcome === "already_finalized")
+      return { outcome: "already_finalized", orderId: order.id };
     return { outcome: "requires_review", orderId: order.id };
   }
 

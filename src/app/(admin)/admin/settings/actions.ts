@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import type { ArcaEnvironment, FiscalTaxCategory, IssuerVatCondition } from "@/generated/prisma/client";
+import type {
+  ArcaEnvironment,
+  FiscalTaxCategory,
+  IssuerVatCondition,
+} from "@/generated/prisma/client";
 import { displayToMinorUnits, InvalidMoneyInputError } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
 import { probeArcaConnection } from "@/modules/fiscal-documents/arca/connection-probe-core";
@@ -35,6 +39,8 @@ export async function updateStoreSettingsAction(input: UpdateStoreSettingsInput)
 // documented "never invent a shipping price" policy and
 // modules/orders/order-core.ts's listAvailableDeliveryMethods.
 const updateDeliverySettingsSchema = z.object({
+  homeDeliveryPostalCodes: z.string().trim().max(1000).optional(),
+  homeDeliveryEstimate: z.string().trim().max(200).optional(),
   homeDeliveryFlatFeeAmount: z
     .string()
     .optional()
@@ -58,10 +64,17 @@ export type UpdateDeliverySettingsInput = z.input<typeof updateDeliverySettingsS
 export async function updateDeliverySettingsAction(input: UpdateDeliverySettingsInput) {
   const user = await requirePermission("settings.manage");
   const data = updateDeliverySettingsSchema.parse(input);
+  if (
+    data.homeDeliveryFlatFeeAmount !== null &&
+    (!data.homeDeliveryPostalCodes?.trim() || !data.homeDeliveryEstimate?.trim())
+  )
+    throw new Error("Para ofrecer envío, completá cobertura por código postal y plazo estimado.");
 
   await updateStoreConfiguration(
     {
       homeDeliveryFlatFeeAmount: data.homeDeliveryFlatFeeAmount,
+      homeDeliveryPostalCodes: data.homeDeliveryPostalCodes || null,
+      homeDeliveryEstimate: data.homeDeliveryEstimate || null,
       pickupInstructions: data.pickupInstructions?.trim() || null,
     },
     user.id,
@@ -182,7 +195,8 @@ const updateFiscalSettingsSchema = z.object({
     .string()
     .optional()
     .refine((value) => !value || (/^\d+$/.test(value) && isValidArcaPointOfSale(Number(value))), {
-      message: "El punto de venta debe ser un número entre 1 y 99998 (WSFEv1 admite hasta 5 dígitos).",
+      message:
+        "El punto de venta debe ser un número entre 1 y 99998 (WSFEv1 admite hasta 5 dígitos).",
     }),
   arcaEnvironment: z.enum(["HOMOLOGATION", "PRODUCTION", ""]).optional(),
   // Phase — ARCA Fiscal Readiness correction pass. A convenience default
@@ -249,6 +263,8 @@ export async function testArcaConnectionAction(): Promise<TestArcaConnectionResu
       lastAuthorizedVoucherFacturaC: result.lastAuthorizedVoucherFacturaC,
     };
   } catch (error) {
-    throw new Error(error instanceof Error ? error.message : "No pudimos probar la conexión con ARCA.");
+    throw new Error(
+      error instanceof Error ? error.message : "No pudimos probar la conexión con ARCA.",
+    );
   }
 }

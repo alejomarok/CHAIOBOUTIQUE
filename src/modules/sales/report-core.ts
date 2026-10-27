@@ -1,4 +1,10 @@
-import type { InvoiceMode, PaymentMethod, Prisma, SalePaymentStatus, SaleStatus } from "@/generated/prisma/client";
+import type {
+  InvoiceMode,
+  PaymentMethod,
+  Prisma,
+  SalePaymentStatus,
+  SaleStatus,
+} from "@/generated/prisma/client";
 import { prisma } from "@/lib/db-core";
 
 import { invoicingModeWhere, invoicingStatusWhere } from "./invoicing-filters";
@@ -89,7 +95,10 @@ async function resolveMatchingVariantIds(productSearch: string): Promise<string[
 // Shared by both listSalesForReport and getSalesReportSummary so the two
 // can never silently drift on what "matches the current filter" means —
 // the summary must always describe exactly the rows the list shows.
-function buildWhere(filters: SalesReportFilters, matchingVariantIds: string[] | null): Prisma.SaleWhereInput {
+function buildWhere(
+  filters: SalesReportFilters,
+  matchingVariantIds: string[] | null,
+): Prisma.SaleWhereInput {
   const saleCodeTerm = filters.saleCodeSearch?.trim();
   const customerTerm = filters.customerSearch?.trim();
 
@@ -113,7 +122,9 @@ function buildWhere(filters: SalesReportFilters, matchingVariantIds: string[] | 
     ...(filters.paymentMethod
       ? { payments: { some: { method: filters.paymentMethod, status: "ACTIVE" } } }
       : {}),
-    ...(matchingVariantIds ? { items: { some: { productVariantId: { in: matchingVariantIds } } } } : {}),
+    ...(matchingVariantIds
+      ? { items: { some: { productVariantId: { in: matchingVariantIds } } } }
+      : {}),
     ...(saleCodeTerm ? { code: { contains: saleCodeTerm, mode: "insensitive" } } : {}),
     ...(customerTerm
       ? {
@@ -144,6 +155,8 @@ const SALE_REPORT_ROW_SELECT = {
   discountTotalAmount: true,
   totalAmount: true,
   paidAmount: true,
+  refundedAmount: true,
+  chargebackAmount: true,
   orderId: true,
   createdBy: { select: { id: true, name: true } },
 } satisfies Prisma.SaleSelect;
@@ -160,7 +173,9 @@ export async function listSalesForReport(
   const take = Math.min(input.take ?? 25, 100);
   const skip = Math.max(input.skip ?? 0, 0);
 
-  const matchingVariantIds = input.productSearch ? await resolveMatchingVariantIds(input.productSearch) : null;
+  const matchingVariantIds = input.productSearch
+    ? await resolveMatchingVariantIds(input.productSearch)
+    : null;
   if (input.productSearch && matchingVariantIds && matchingVariantIds.length === 0) {
     return { sales: [], total: 0 };
   }
@@ -168,7 +183,13 @@ export async function listSalesForReport(
   const where = buildWhere(input, matchingVariantIds);
 
   const [sales, total] = await Promise.all([
-    prisma.sale.findMany({ where, orderBy: { saleDate: "desc" }, take, skip, select: SALE_REPORT_ROW_SELECT }),
+    prisma.sale.findMany({
+      where,
+      orderBy: { saleDate: "desc" },
+      take,
+      skip,
+      select: SALE_REPORT_ROW_SELECT,
+    }),
     prisma.sale.count({ where }),
   ]);
 
@@ -202,8 +223,12 @@ export interface SalesReportSummary {
   cancelledAmount: bigint;
 }
 
-export async function getSalesReportSummary(filters: SalesReportFilters = {}): Promise<SalesReportSummary> {
-  const matchingVariantIds = filters.productSearch ? await resolveMatchingVariantIds(filters.productSearch) : null;
+export async function getSalesReportSummary(
+  filters: SalesReportFilters = {},
+): Promise<SalesReportSummary> {
+  const matchingVariantIds = filters.productSearch
+    ? await resolveMatchingVariantIds(filters.productSearch)
+    : null;
   if (filters.productSearch && matchingVariantIds && matchingVariantIds.length === 0) {
     return {
       saleCount: 0,
@@ -230,7 +255,7 @@ export async function getSalesReportSummary(filters: SalesReportFilters = {}): P
     prisma.sale.aggregate({
       where: nonCancelledWhere,
       _count: true,
-      _sum: { totalAmount: true, paidAmount: true },
+      _sum: { totalAmount: true, paidAmount: true, refundedAmount: true, chargebackAmount: true },
     }),
     prisma.sale.aggregate({ where: cancelledWhere, _count: true, _sum: { totalAmount: true } }),
   ]);
@@ -238,7 +263,11 @@ export async function getSalesReportSummary(filters: SalesReportFilters = {}): P
   const saleCount = nonCancelledAgg._count;
   const totalSoldAmount = nonCancelledAgg._sum.totalAmount ?? 0n;
   const totalCollectedAmount = nonCancelledAgg._sum.paidAmount ?? 0n;
-  const rawPending = totalSoldAmount - totalCollectedAmount;
+  const rawPending =
+    totalSoldAmount -
+    totalCollectedAmount -
+    (nonCancelledAgg._sum.refundedAmount ?? 0n) -
+    (nonCancelledAgg._sum.chargebackAmount ?? 0n);
   const totalPendingAmount = rawPending > 0n ? rawPending : 0n;
 
   return {
@@ -282,7 +311,10 @@ export async function listSaleItemDetailRows(saleIds: string[]): Promise<SaleIte
       discountAmount: true,
       totalAmount: true,
       productVariant: {
-        select: { color: { select: { displayName: true } }, sizeOption: { select: { label: true } } },
+        select: {
+          color: { select: { displayName: true } },
+          sizeOption: { select: { label: true } },
+        },
       },
     },
     orderBy: { createdAt: "asc" },

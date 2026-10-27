@@ -40,6 +40,8 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
     page,
     context,
   }) => {
+    // This scenario compiles and visits several complete admin workflows.
+    test.setTimeout(180_000);
     const actor = await createTestUser({
       name: "Publish Flow Data Actor",
       email: `publish-flow-data-${Date.now()}@test.chaioboutique.local`,
@@ -79,9 +81,7 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
 
     // 4. Review why it isn't public — the guided "why not visible" panel,
     // in plain Spanish, with the exact getVisibilityBlockers() reasons.
-    await expect(
-      page.getByText("Este producto todavía no aparece en la tienda"),
-    ).toBeVisible();
+    await expect(page.getByText("Este producto todavía no aparece en la tienda")).toBeVisible();
     await expect(page.getByText(/no tiene una categoría asignada/i)).toBeVisible();
     await expect(page.getByText(/no tiene ninguna variante activa/i)).toBeVisible();
     await expect(page.getByText("Visible en el catálogo")).toBeVisible();
@@ -110,7 +110,9 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
     // 6. Load stock for the new variant — the guided stock section's own
     // "Cargar stock inicial" action, pre-selecting this exact variant.
     await page.reload();
-    await expect(page.getByText("Las variantes de este producto todavía no tienen stock")).toBeVisible();
+    await expect(
+      page.getByText("Las variantes de este producto todavía no tienen stock"),
+    ).toBeVisible();
     await page.getByRole("link", { name: "Cargar stock inicial" }).click();
     await expect(page).toHaveURL(/\/admin\/inventory\/adjustments/);
     await page.getByLabel("Depósito").click();
@@ -132,14 +134,10 @@ test.describe("admin product publish flow (real DB, real HTTP)", () => {
     await expect(page.getByText("Imagen subida correctamente.")).toBeVisible({ timeout: 15_000 });
 
     // 8. Publish it.
-    await expect(
-      page.getByText("Este producto todavía no aparece en la tienda"),
-    ).toBeVisible();
+    await expect(page.getByText("Este producto todavía no aparece en la tienda")).toBeVisible();
     await page.getByRole("button", { name: "Publicar" }).click();
     await expect(page.getByText("Producto publicado.")).toBeVisible();
-    await expect(
-      page.getByText("Este producto todavía no aparece en la tienda"),
-    ).not.toBeVisible();
+    await expect(page.getByText("Este producto todavía no aparece en la tienda")).not.toBeVisible();
 
     // 9. Use "Ver en la tienda".
     const [storefrontPage] = await Promise.all([

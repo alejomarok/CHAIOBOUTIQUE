@@ -15,6 +15,12 @@ export class SmtpEmailProvider implements EmailProvider {
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
     secure: env.SMTP_SECURE,
+    requireTLS:
+      env.NODE_ENV === "production" && !["localhost", "127.0.0.1"].includes(env.SMTP_HOST),
+    connectionTimeout: 8000,
+    socketTimeout: 10000,
+    disableFileAccess: true,
+    disableUrlAccess: true,
     auth:
       env.SMTP_USER && env.SMTP_PASSWORD
         ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD }

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
+import { useFormReady } from "@/components/auth/use-form-ready";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -24,6 +25,7 @@ export function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const tokenError = searchParams.get("error");
+  const isFormReady = useFormReady();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<ResetPasswordInput>({
@@ -62,7 +64,7 @@ export function ResetPasswordForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+      <form method="post" onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <FormField
           control={form.control}
           name="password"
@@ -76,7 +78,7 @@ export function ResetPasswordForm() {
             </FormItem>
           )}
         />
-        <Button type="submit" disabled={isSubmitting} className="mt-2">
+        <Button type="submit" disabled={!isFormReady || isSubmitting} className="mt-2">
           {isSubmitting ? "Guardando…" : "Guardar nueva contraseña"}
         </Button>
       </form>

@@ -138,6 +138,8 @@ interface SaleLockRow {
   id: string;
   status: "DRAFT" | "CONFIRMED" | "CANCELLED";
   totalAmount: bigint;
+  refundedAmount: bigint;
+  chargebackAmount: bigint;
 }
 
 export interface RegisterSalePaymentInput {
@@ -194,9 +196,11 @@ export async function registerSalePaymentWithinTransaction(
   if (input.amount <= 0n) throw new InvalidPaymentAmountError();
 
   const [locked] = await tx.$queryRaw<SaleLockRow[]>`
-    SELECT id, status, "totalAmount" FROM sale WHERE id = ${input.saleId} FOR UPDATE
+    SELECT id, status, "totalAmount", "refundedAmount", "chargebackAmount" FROM sale WHERE id = ${input.saleId} FOR UPDATE
   `;
   if (!locked) throw new SaleNotFoundError();
+  if (locked.refundedAmount > 0n || locked.chargebackAmount > 0n)
+    throw new Error("La venta tiene ajustes del proveedor y requiere revisión de posventa.");
   if (locked.status === "CANCELLED") throw new SaleCancelledCannotAcceptPaymentsError();
   if (locked.status === "DRAFT") throw new SaleNotConfirmedError();
 
@@ -291,9 +295,11 @@ export async function voidSalePayment(
     if (!initial) throw new SalePaymentNotFoundError();
 
     const [locked] = await tx.$queryRaw<SaleLockRow[]>`
-      SELECT id, status, "totalAmount" FROM sale WHERE id = ${initial.saleId} FOR UPDATE
+      SELECT id, status, "totalAmount", "refundedAmount", "chargebackAmount" FROM sale WHERE id = ${initial.saleId} FOR UPDATE
     `;
     if (!locked) throw new SaleNotFoundError();
+    if (locked.refundedAmount > 0n || locked.chargebackAmount > 0n)
+      throw new Error("El pago tiene ajustes del proveedor y no puede anularse manualmente.");
 
     const payment = await tx.salePayment.findUniqueOrThrow({ where: { id } });
     if (payment.status === "VOIDED") throw new PaymentAlreadyVoidedError();

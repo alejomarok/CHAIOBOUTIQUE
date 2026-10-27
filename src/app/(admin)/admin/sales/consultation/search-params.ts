@@ -1,4 +1,9 @@
-import type { InvoiceMode, PaymentMethod, SalePaymentStatus, SaleStatus } from "@/generated/prisma/client";
+import type {
+  InvoiceMode,
+  PaymentMethod,
+  SalePaymentStatus,
+  SaleStatus,
+} from "@/generated/prisma/client";
 import { endOfDayExclusiveInTimezone, startOfDayInTimezone } from "@/lib/store-timezone";
 import type { SaleInvoicingStatusFilter } from "@/modules/sales/report";
 import type { SalesReportFilters } from "@/modules/sales/report";
@@ -40,11 +45,20 @@ function isValidStatus(value: string | undefined): value is SaleStatus {
 }
 
 function isValidPaymentStatus(value: string | undefined): value is SalePaymentStatus {
-  return value === "UNPAID" || value === "PARTIALLY_PAID" || value === "PAID";
+  return (
+    value === "UNPAID" ||
+    value === "PARTIALLY_PAID" ||
+    value === "PAID" ||
+    value === "PARTIALLY_REFUNDED" ||
+    value === "REFUNDED" ||
+    value === "CHARGED_BACK"
+  );
 }
 
 function isValidInvoicingStatus(value: string | undefined): value is SaleInvoicingStatusFilter {
-  return value === "NOT_INVOICED" || value === "PENDING" || value === "INVOICED" || value === "ERROR";
+  return (
+    value === "NOT_INVOICED" || value === "PENDING" || value === "INVOICED" || value === "ERROR"
+  );
 }
 
 function isValidInvoicingMode(value: string | undefined): value is InvoiceMode {
@@ -86,7 +100,9 @@ export function parseSalesConsultationFilters(
     productSearch: params.product?.trim() || undefined,
     status: isValidStatus(params.status) ? params.status : undefined,
     paymentStatus: isValidPaymentStatus(params.paymentStatus) ? params.paymentStatus : undefined,
-    invoicingStatus: isValidInvoicingStatus(params.invoicingStatus) ? params.invoicingStatus : undefined,
+    invoicingStatus: isValidInvoicingStatus(params.invoicingStatus)
+      ? params.invoicingStatus
+      : undefined,
     invoicingMode: isValidInvoicingMode(params.invoicingMode) ? params.invoicingMode : undefined,
     origin: isValidOrigin(params.origin) ? params.origin : undefined,
     paymentMethod: isValidPaymentMethod(params.paymentMethod) ? params.paymentMethod : undefined,

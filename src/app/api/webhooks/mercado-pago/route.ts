@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
+import { processEmailOutbox } from "@/modules/email/outbox-core";
 
 import {
   getMercadoPagoConfig,
@@ -46,7 +48,9 @@ export async function POST(request: Request) {
   if (!signatureResult.valid) {
     // Safe to log — an enum reason string, never the header/secret values
     // themselves. No state mutation on this path, ever.
-    console.warn("[mercado-pago webhook] signature rejected", { reason: signatureResult.failureReason });
+    console.warn("[mercado-pago webhook] signature rejected", {
+      reason: signatureResult.failureReason,
+    });
     return new NextResponse(null, { status: 401 });
   }
 
@@ -76,6 +80,9 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 500 });
   }
 
+  after(async () => {
+    await processEmailOutbox(2);
+  });
   return new NextResponse(null, { status: 200 });
 }
 

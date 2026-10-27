@@ -8,9 +8,9 @@ import { recordAuditLog } from "@/modules/audit/index-core";
 // SCOPE — Phase: Public Footer Redesign. See the StoreBranch model's own
 // schema comment: a small, genuinely separate table for CHAIOBOUTIQUE's
 // real physical locations, editable from /admin/settings without touching
-// React source. Deliberately no create/delete this phase — the two real
-// branches are seeded once (see seed-core.ts) and only ever edited
-// in-place; add create/delete later if a third branch genuinely needs one,
+// React source. Locations are seeded once (see seed-core.ts) and edited
+// in-place. Closed locations stay inactive to preserve their history;
+// add create/delete later if another branch genuinely needs one,
 // rather than building that UI speculatively now.
 
 export class BranchNotFoundError extends Error {

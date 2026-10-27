@@ -74,7 +74,7 @@ test.describe("admin smoke flow (real DB, real HTTP)", () => {
 
     // 2. Enter /admin.
     await expect(page).toHaveURL(/\/admin/);
-    await expect(page.getByRole("heading", { name: "Panel" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Vista general" })).toBeVisible();
 
     // 3. Return to the storefront through the logo.
     await page.getByRole("link", { name: "CHAIOBOUTIQUE" }).first().click();
@@ -84,9 +84,7 @@ test.describe("admin smoke flow (real DB, real HTTP)", () => {
     await page.goto(`/admin/products/${product.id}`);
     await expect(page.getByRole("heading", { name: uniqueName })).toBeVisible();
     await expect(page.getByText("Visible en el catálogo")).toBeVisible();
-    await expect(
-      page.getByText("Este producto todavía no aparece en la tienda"),
-    ).not.toBeVisible();
+    await expect(page.getByText("Este producto todavía no aparece en la tienda")).not.toBeVisible();
 
     // 5. Upload an image through the real form.
     await page.locator('input[type="file"]').setInputFiles({

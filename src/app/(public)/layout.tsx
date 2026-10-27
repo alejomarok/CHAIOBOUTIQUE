@@ -29,8 +29,13 @@ export const dynamic = "force-dynamic";
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <StorefrontRoot>
+      <a href="#main-content" className="skip-link">
+        Saltar al contenido
+      </a>
       <PublicHeader />
-      <main className="flex-1">{children}</main>
+      <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
+        {children}
+      </main>
       <PublicFooter />
     </StorefrontRoot>
   );

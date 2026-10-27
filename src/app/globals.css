@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+/* Static shadcn 4.14.0 styles; license in styles/vendor/shadcn-LICENSE.md. */
+@import "../styles/vendor/shadcn-tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -57,133 +58,57 @@
   --color-success-foreground: var(--success-foreground);
 }
 
-/*
- * CHAIOBOUTIQUE design tokens: warm ivory backgrounds, a muted dusty-rose
- * primary, and a soft blush accent — elegant and feminine without being
- * childish. Change the palette here; components never hardcode colors.
- */
+/* CHAIOBOUTIQUE: warm paper, charcoal and a restrained olive accent.
+   The original multicolour hummingbird remains the brand signature. */
 :root {
-  --background: oklch(0.985 0.006 75);
-  --foreground: oklch(0.24 0.02 30);
-  --card: oklch(0.995 0.004 75);
-  --card-foreground: oklch(0.24 0.02 30);
-  --popover: oklch(0.995 0.004 75);
-  --popover-foreground: oklch(0.24 0.02 30);
-  --primary: oklch(0.47 0.09 18);
-  --primary-foreground: oklch(0.99 0.004 75);
-  --secondary: oklch(0.94 0.018 40);
-  --secondary-foreground: oklch(0.32 0.04 20);
-  --muted: oklch(0.955 0.01 60);
-  --muted-foreground: oklch(0.5 0.02 40);
-  --accent: oklch(0.87 0.045 55);
-  --accent-foreground: oklch(0.27 0.03 30);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.9 0.012 50);
-  --input: oklch(0.9 0.012 50);
-  --ring: oklch(0.55 0.08 18);
-  --chart-1: oklch(0.55 0.08 18);
-  --chart-2: oklch(0.68 0.06 50);
-  --chart-3: oklch(0.6 0.04 90);
-  --chart-4: oklch(0.5 0.03 220);
-  --chart-5: oklch(0.4 0.02 30);
-  --radius: 0.75rem;
-  --sidebar: oklch(0.97 0.008 60);
-  --sidebar-foreground: oklch(0.24 0.02 30);
-  --sidebar-primary: oklch(0.47 0.09 18);
-  --sidebar-primary-foreground: oklch(0.99 0.004 75);
-  --sidebar-accent: oklch(0.92 0.02 50);
-  --sidebar-accent-foreground: oklch(0.27 0.03 30);
-  --sidebar-border: oklch(0.9 0.012 50);
-  --sidebar-ring: oklch(0.55 0.08 18);
-
-  /* New, additive tokens — not part of the shared shadcn semantic set, so
-     defining them globally never changes existing admin UI (nothing there
-     references these class names yet). Derived from the CHAIOBOUTIQUE
-     multicolor bird mark: cyan/turquoise + pink as the two controlled
-     accents, lime/yellow/orange reserved for sparing micro-accents only. */
-  --blush: oklch(0.955 0.03 25);
-  --blush-foreground: oklch(0.32 0.04 20);
-  --accent-cyan: oklch(0.58 0.1 200);
-  --accent-pink: oklch(0.72 0.12 10);
-  --accent-lime: oklch(0.75 0.14 135);
-  --accent-yellow: oklch(0.85 0.14 95);
-  --accent-orange: oklch(0.72 0.15 55);
-  --success: oklch(0.6 0.12 145);
-  --success-foreground: oklch(0.99 0.01 145);
+  --background: #f8f7f3;
+  --foreground: #242b28;
+  --card: #ffffff;
+  --card-foreground: #242b28;
+  --popover: #ffffff;
+  --popover-foreground: #242b28;
+  --primary: #34483d;
+  --primary-foreground: #ffffff;
+  --secondary: #e9ece5;
+  --secondary-foreground: #34483d;
+  --muted: #efeee8;
+  --muted-foreground: #686d66;
+  --accent: #e9ece5;
+  --accent-foreground: #242b28;
+  --destructive: #b34338;
+  --border: #dedfd6;
+  --input: #d3d6cc;
+  --ring: #526a57;
+  --chart-1: #34483d;
+  --chart-2: #71806c;
+  --chart-3: #a3ad95;
+  --chart-4: #b9b3a4;
+  --chart-5: #666d64;
+  --radius: 0.375rem;
+  --sidebar: #f1f2eb;
+  --sidebar-foreground: #242b28;
+  --sidebar-primary: #34483d;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5e9df;
+  --sidebar-accent-foreground: #34483d;
+  --sidebar-border: #dedfd6;
+  --sidebar-ring: #526a57;
+  --blush: #e9ece5;
+  --blush-foreground: #34483d;
+  --accent-cyan: #34483d;
+  --accent-pink: #b39c98;
+  --accent-lime: #71806c;
+  --accent-yellow: #b8ac82;
+  --accent-orange: #ab9378;
+  --success: #3e6748;
+  --success-foreground: #ffffff;
 }
 
-/*
- * Storefront palette — scoped to the public-facing site only (applied via
- * the `.storefront` class on the (public) route group's root element in
- * src/app/(public)/layout.tsx), so /admin and the (auth) pages keep the
- * existing :root values above untouched. Same semantic token names, so
- * every shared UI primitive (Button, Badge, Input, Card, ...) picks this up
- * automatically through normal CSS custom-property cascade — no component
- * code changes needed. Warm ivory background, charcoal type, turquoise as
- * the primary accent and soft pink as the secondary accent — both derived
- * from the CHAIOBOUTIQUE bird mark's color family — everything else stays
- * white / cream / blush so the interface never reads as "rainbow."
- */
-.storefront {
-  --background: oklch(0.99 0.006 80);
-  --foreground: oklch(0.22 0.015 30);
-  --card: oklch(1 0.003 80);
-  --card-foreground: oklch(0.22 0.015 30);
-  --popover: oklch(1 0.003 80);
-  --popover-foreground: oklch(0.22 0.015 30);
-  --primary: oklch(0.58 0.1 200);
-  --primary-foreground: oklch(0.99 0.005 80);
-  --secondary: oklch(0.85 0.06 10);
-  --secondary-foreground: oklch(0.32 0.05 10);
-  --muted: oklch(0.965 0.012 60);
-  --muted-foreground: oklch(0.48 0.02 40);
-  --accent: oklch(0.95 0.025 20);
-  --accent-foreground: oklch(0.28 0.03 20);
-  --border: oklch(0.91 0.014 50);
-  --input: oklch(0.91 0.014 50);
-  --ring: oklch(0.58 0.1 200);
-}
-
-/*
- * Admin palette — scoped to the authenticated admin panel only (applied
- * via the `.admin` class on the (admin) route group's root element in
- * src/app/(admin)/admin/layout.tsx, through the same ScopedRoot mechanism
- * `.storefront` uses — see components/layout/scoped-portal-root.tsx), so
- * the public (auth) pages keep the original :root values untouched. Same
- * brand family as `.storefront` (warm ivory, charcoal type, turquoise
- * primary, pink secondary) so the two feel like one product, but every
- * value is more restrained/neutral — this is an operational tool, not an
- * editorial storefront. No lime/yellow/orange usage here at all; those
- * stay storefront-only micro-accents.
- */
+.storefront,
 .admin {
-  --background: oklch(0.982 0.004 70);
-  --foreground: oklch(0.23 0.012 30);
-  --card: oklch(0.995 0.003 70);
-  --card-foreground: oklch(0.23 0.012 30);
-  --popover: oklch(0.995 0.003 70);
-  --popover-foreground: oklch(0.23 0.012 30);
-  --primary: oklch(0.52 0.085 200);
-  --primary-foreground: oklch(0.99 0.004 80);
-  --secondary: oklch(0.91 0.03 10);
-  --secondary-foreground: oklch(0.32 0.04 10);
-  --muted: oklch(0.96 0.008 60);
-  --muted-foreground: oklch(0.49 0.015 40);
-  --accent: oklch(0.945 0.014 30);
-  --accent-foreground: oklch(0.28 0.02 20);
-  --border: oklch(0.9 0.01 50);
-  --input: oklch(0.9 0.01 50);
-  --ring: oklch(0.52 0.085 200);
-  --sidebar: oklch(0.967 0.013 35);
-  --sidebar-foreground: oklch(0.23 0.012 30);
-  --sidebar-primary: oklch(0.52 0.085 200);
-  --sidebar-primary-foreground: oklch(0.99 0.004 80);
-  --sidebar-accent: oklch(0.93 0.02 25);
-  --sidebar-accent-foreground: oklch(0.28 0.02 20);
-  --sidebar-border: oklch(0.89 0.012 45);
-  --sidebar-ring: oklch(0.52 0.085 200);
+  color: var(--foreground);
+  background: var(--background);
 }
-
 .dark {
   --background: oklch(0.19 0.012 30);
   --foreground: oklch(0.96 0.006 75);
@@ -237,6 +162,97 @@
   h3 {
     @apply font-heading;
   }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 4px;
+  }
+  a,
+  button {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  ::selection {
+    color: #ffffff;
+    background: #526a57;
+  }
+}
+
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  transform: translateY(-160%);
+  padding: 12px 20px;
+  color: white;
+  background: #34483d;
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+.campaign-button {
+  transition:
+    transform 220ms ease,
+    background-color 220ms ease;
+}
+.campaign-button:hover {
+  transform: translateY(-3px);
+}
+.campaign-button:active {
+  transform: translateY(0);
+}
+.editorial-link {
+  transition: color 180ms ease;
+}
+.editorial-link:hover {
+  color: var(--primary);
+}
+.editorial-link svg {
+  transition: transform 220ms ease;
+}
+.editorial-link:hover svg {
+  transform: translate(3px, -3px);
+}
+.hero-enter {
+  animation: campaign-entrance 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.campaign-hero-image {
+  animation: campaign-settle 1600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-motion="ready"] {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 800ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 800ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+[data-motion="ready"][data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+@keyframes campaign-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes campaign-settle {
+  from {
+    transform: scale(1.045);
+  }
+  to {
+    transform: scale(1);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -247,5 +263,9 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+  [data-motion="ready"] {
+    opacity: 1;
+    transform: none;
   }
 }

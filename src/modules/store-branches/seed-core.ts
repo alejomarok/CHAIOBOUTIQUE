@@ -1,23 +1,14 @@
 import { prisma } from "@/lib/db-core";
 
 // Node-safe (no "server-only"), same convention as modules/warehouses/
-// seed-core.ts. Seeds CHAIOBOUTIQUE's two real, current physical branches —
+// seed-core.ts. Seeds CHAIOBOUTIQUE's current physical branch —
 // this is the single source of truth for that text; nothing else in the
 // codebase hard-codes it (see this phase's explicit "avoid hardcoding the
 // same branch text in multiple components" requirement). Idempotent
 // per-branch (checked by `code`, never by a blanket "any branch exists"
-// count) — an admin's later edit to either branch's name/address is never
-// overwritten by a repeated seed run, and a future third branch could be
-// added to this list without re-touching the first two.
+// count) — an admin's later edit to a branch's name/address is never
+// overwritten by a repeated seed run. Future locations can be added here.
 const SEED_BRANCHES = [
-  {
-    code: "rio-tercero",
-    name: "Río Tercero",
-    address: "Libertad 161",
-    city: "Río Tercero",
-    province: "Córdoba",
-    displayOrder: 0,
-  },
   {
     code: "embalse",
     name: "Embalse",

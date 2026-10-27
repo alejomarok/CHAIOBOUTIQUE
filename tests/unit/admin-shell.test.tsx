@@ -51,7 +51,7 @@ describe("AdminShell", () => {
     }
   });
 
-  it("preserves active-nav styling on the current admin route", () => {
+  it("identifies the current admin route for assistive technology", () => {
     render(
       <AdminShell groups={groups} user={user}>
         <div>content</div>
@@ -61,7 +61,7 @@ describe("AdminShell", () => {
     const panelLinks = screen.getAllByRole("link", { name: /Panel/i });
     expect(panelLinks.length).toBeGreaterThan(0);
     for (const link of panelLinks) {
-      expect(link.className).toContain("bg-sidebar-primary");
+      expect(link).toHaveAttribute("aria-current", "page");
     }
   });
 });

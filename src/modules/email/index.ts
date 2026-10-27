@@ -31,11 +31,9 @@ export async function sendPasswordResetEmail(input: {
       `,
       text: `Para restablecer tu contraseña, visitá: ${input.resetUrl}`,
     });
-  } catch (error) {
-    // Safe to log: this is a transport-level failure (e.g. Mailpit not
-    // running), never the reset URL/token itself.
-    console.error("Password reset email delivery failed.", error);
-    throw new EmailDeliveryError(error);
+  } catch {
+    console.error("Password reset email delivery failed.");
+    throw new EmailDeliveryError();
   }
 }
 
@@ -54,10 +52,8 @@ export async function sendVerificationEmail(input: {
       `,
       text: `Para confirmar tu email, visitá: ${input.verifyUrl}`,
     });
-  } catch (error) {
-    // Safe to log: this is a transport-level failure (e.g. Mailpit not
-    // running), never the verification URL/token itself.
-    console.error("Verification email delivery failed.", error);
-    throw new EmailDeliveryError(error);
+  } catch {
+    console.error("Verification email delivery failed.");
+    throw new EmailDeliveryError();
   }
 }

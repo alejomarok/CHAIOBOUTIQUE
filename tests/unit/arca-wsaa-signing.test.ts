@@ -1,13 +1,20 @@
+// @vitest-environment node
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { webcrypto } from "node:crypto";
+import * as asn1js from "asn1js";
+import { ContentInfo, CryptoEngine, SignedData } from "pkijs";
 
 import forge from "node-forge";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { env } from "@/lib/env-core";
 import { callWsaaLoginCms, signTicketRequestCms } from "@/modules/fiscal-documents/arca/wsaa-core";
-import { WsaaFaultError, WsaaResponseParseError } from "@/modules/fiscal-documents/arca/wsaa-tra-core";
+import {
+  WsaaFaultError,
+  WsaaResponseParseError,
+} from "@/modules/fiscal-documents/arca/wsaa-tra-core";
 
 // Generates a throwaway, test-only self-signed certificate/key pair — NEVER
 // a real ARCA certificate (this suite must never require one — see this
@@ -25,7 +32,10 @@ function generateSelfSignedCertPem(): { certPem: string; keyPem: string } {
   cert.setSubject(attrs);
   cert.setIssuer(attrs);
   cert.sign(keys.privateKey, forge.md.sha256.create());
-  return { certPem: forge.pki.certificateToPem(cert), keyPem: forge.pki.privateKeyToPem(keys.privateKey) };
+  return {
+    certPem: forge.pki.certificateToPem(cert),
+    keyPem: forge.pki.privateKeyToPem(keys.privateKey),
+  };
 }
 
 describe("signTicketRequestCms", () => {
@@ -70,6 +80,12 @@ describe("signTicketRequestCms", () => {
     // document) as plain UTF-8 bytes within the SignedData's ContentInfo —
     // present verbatim in the DER encoding.
     expect(der).toContain(traXml);
+    const cms = new ContentInfo({
+      schema: asn1js.fromBER(Buffer.from(cmsBase64, "base64")).result,
+    });
+    const signed = new SignedData({ schema: cms.content });
+    const engine = new CryptoEngine({ name: "node", crypto: webcrypto as unknown as Crypto });
+    expect(await signed.verify({ signer: 0, checkChain: false }, engine)).toBe(true);
   });
 });
 
@@ -100,7 +116,9 @@ describe("callWsaaLoginCms", () => {
         ok: true,
         status: 200,
         text: async () =>
-          soapEnvelope(`<loginCmsResponse xmlns="http://wsaa.view.sua.dvadac.desein.afip.gov"><loginCmsReturn>${escapedInner}</loginCmsReturn></loginCmsResponse>`),
+          soapEnvelope(
+            `<loginCmsResponse xmlns="http://wsaa.view.sua.dvadac.desein.afip.gov"><loginCmsReturn>${escapedInner}</loginCmsReturn></loginCmsResponse>`,
+          ),
       })),
     );
 
@@ -116,7 +134,9 @@ describe("callWsaaLoginCms", () => {
         ok: false,
         status: 500,
         text: async () =>
-          soapEnvelope(`<soap:Fault><faultcode>soap:Server</faultcode><faultstring>El CEE ya posee un TA valido</faultstring></soap:Fault>`),
+          soapEnvelope(
+            `<soap:Fault><faultcode>soap:Server</faultcode><faultstring>El CEE ya posee un TA valido</faultstring></soap:Fault>`,
+          ),
       })),
     );
 
@@ -126,7 +146,11 @@ describe("callWsaaLoginCms", () => {
   it("throws WsaaResponseParseError when the response has no loginCmsReturn", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: true, status: 200, text: async () => soapEnvelope(`<somethingElse/>`) })),
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => soapEnvelope(`<somethingElse/>`),
+      })),
     );
 
     await expect(callWsaaLoginCms("BASE64-CMS", WSAA_URL)).rejects.toThrow(WsaaResponseParseError);

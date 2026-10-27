@@ -60,7 +60,11 @@ test.describe("checkout (real DB, real HTTP)", () => {
   test("guest: catalog -> product -> cart -> checkout -> order confirmation, with no fake User created", async ({
     page,
   }) => {
-    const { productName, variant, warehouse } = await setUpSellableProduct("Guest Checkout", 150000n, 5);
+    const { productName, variant, warehouse } = await setUpSellableProduct(
+      "Guest Checkout",
+      150000n,
+      5,
+    );
     const userCountBefore = await prisma.user.count();
 
     // 1. Catalog -> product -> cart, as a guest.
@@ -90,6 +94,7 @@ test.describe("checkout (real DB, real HTTP)", () => {
 
     // 5. Resumen -> confirmar.
     await expect(page.getByText(productName)).toBeVisible();
+    await page.getByRole("checkbox", { name: /Acepto los/ }).check();
     await page.getByRole("button", { name: "Confirmar pedido" }).click();
 
     // 6. Order confirmation page.
@@ -113,10 +118,13 @@ test.describe("checkout (real DB, real HTTP)", () => {
     expect(balance.quantity).toBe(5);
     expect(balance.reservedQuantity).toBe(1);
 
-    const order = await prisma.order.findFirstOrThrow({ where: { contactEmailSnapshot: { contains: "ana-invitada" } } });
+    const order = await prisma.order.findFirstOrThrow({
+      where: { contactEmailSnapshot: { contains: "ana-invitada" } },
+    });
     cleanup.push(async () => {
       await prisma.inventoryReservation.deleteMany({ where: { orderId: order.id } });
       await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+      await prisma.emailOutbox.deleteMany({ where: { orderId: order.id } });
       await prisma.order.delete({ where: { id: order.id } });
     });
   });
@@ -125,8 +133,17 @@ test.describe("checkout (real DB, real HTTP)", () => {
     page,
   }) => {
     const { productName } = await setUpSellableProduct("Auth Checkout", 200000n, 5);
-    const adminActorId = (await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_FIXTURE.email } })).id;
-    await updateStoreConfiguration({ homeDeliveryFlatFeeAmount: 30000n }, adminActorId);
+    const adminActorId = (
+      await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_FIXTURE.email } })
+    ).id;
+    await updateStoreConfiguration(
+      {
+        homeDeliveryFlatFeeAmount: 30000n,
+        homeDeliveryPostalCodes: "2000",
+        homeDeliveryEstimate: "3 a 6 días hábiles",
+      },
+      adminActorId,
+    );
     cleanup.push(() => updateStoreConfiguration({ homeDeliveryFlatFeeAmount: null }, adminActorId));
 
     // CUSTOMER_FIXTURE's User has no linked commercial Customer by default
@@ -136,15 +153,27 @@ test.describe("checkout (real DB, real HTTP)", () => {
     // "authenticated, prefilled, pick a saved address" path this test is
     // named for. Unlinked again in cleanup so CUSTOMER_FIXTURE returns to
     // its normal shared-fixture state for any other spec in the suite.
-    const customerUser = await prisma.user.findUniqueOrThrow({ where: { email: CUSTOMER_FIXTURE.email } });
+    const customerUser = await prisma.user.findUniqueOrThrow({
+      where: { email: CUSTOMER_FIXTURE.email },
+    });
     const uniqueEmail = `customer-fixture-${Date.now()}@test.chaioboutique.local`;
     const created = await createCustomer(
-      { type: "PERSON", firstName: "Cliente", lastName: "Autenticado", email: uniqueEmail, phone: "1122334455" },
+      {
+        type: "PERSON",
+        firstName: "Cliente",
+        lastName: "Autenticado",
+        email: uniqueEmail,
+        phone: "1122334455",
+      },
       adminActorId,
     );
     if (created.status !== "created") throw new Error("unreachable — fresh unique email");
     await linkCustomerToUser(created.customer.id, customerUser.id, adminActorId);
-    await addCustomerAddress(created.customer.id, { street: "Av. Existente", city: "Rosario" }, adminActorId);
+    await addCustomerAddress(
+      created.customer.id,
+      { street: "Av. Existente", city: "Rosario", postalCode: "2000" },
+      adminActorId,
+    );
     cleanup.push(() => unlinkCustomerFromUser(created.customer.id, adminActorId));
 
     await page.goto("/login");
@@ -172,6 +201,7 @@ test.describe("checkout (real DB, real HTTP)", () => {
 
     await expect(page.getByText(productName)).toBeVisible();
     await expect(page.getByText(/Av\. Existente/)).toBeVisible();
+    await page.getByRole("checkbox", { name: /Acepto los/ }).check();
     await page.getByRole("button", { name: "Confirmar pedido" }).click();
     await expect(page).toHaveURL(/\/order\/[A-Za-z0-9_-]{40,}$/, { timeout: 15_000 });
     await expect(page.getByText("Av. Existente")).toBeVisible();
@@ -185,6 +215,7 @@ test.describe("checkout (real DB, real HTTP)", () => {
     cleanup.push(async () => {
       await prisma.inventoryReservation.deleteMany({ where: { orderId: order.id } });
       await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+      await prisma.emailOutbox.deleteMany({ where: { orderId: order.id } });
       await prisma.order.delete({ where: { id: order.id } });
     });
 

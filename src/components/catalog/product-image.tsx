@@ -45,7 +45,7 @@ export function ProductImage({
       alt={alt}
       fill
       sizes={sizes}
-      priority={priority}
+      preload={priority}
       className={className}
       onError={() => setFailed(true)}
     />

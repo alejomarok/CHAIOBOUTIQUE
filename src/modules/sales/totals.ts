@@ -77,7 +77,8 @@ export function computeSaleTotals(
 // sync transactionally by modules/sales/payment-core.ts). A zero-total sale
 // (fully discounted, or simply no items yet) is treated as PAID — there is
 // nothing left to collect — rather than UNPAID, which would be misleading.
-export type SalePaymentStatusValue = "UNPAID" | "PARTIALLY_PAID" | "PAID";
+export type SalePaymentStatusValue =
+  "UNPAID" | "PARTIALLY_PAID" | "PAID" | "PARTIALLY_REFUNDED" | "REFUNDED" | "CHARGED_BACK";
 
 export function computeSalePaymentStatus(
   totalAmount: bigint,
@@ -104,7 +105,8 @@ export function getSalePaymentSummary(sale: {
   paidAmount: bigint;
   paymentStatus: SalePaymentStatusValue;
 }): SalePaymentSummary {
-  const remaining = sale.totalAmount - sale.paidAmount;
+  const adjusted = ["PARTIALLY_REFUNDED", "REFUNDED", "CHARGED_BACK"].includes(sale.paymentStatus);
+  const remaining = adjusted ? 0n : sale.totalAmount - sale.paidAmount;
   return {
     totalAmount: sale.totalAmount,
     paidAmount: sale.paidAmount,

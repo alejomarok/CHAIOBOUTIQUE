@@ -1,7 +1,10 @@
 # Security
 
-This document explains security decisions made in the foundation phase and honestly lists known
-gaps that must be closed before production.
+This document records authentication and authorization decisions. The current release adds
+per-request nonced CSP, security headers, shared Postgres rate limits, encrypted order links
+and email payloads, durable retries, immutable payment-adjustment history, and a production
+guard that refuses test providers or missing encryption keys. See the current
+[release guide](./docs/production-release.md) for external launch gates and incident procedures.
 
 ## Authentication
 
@@ -55,7 +58,7 @@ Reviewed for Phase 3B (`src/lib/auth.ts` unless noted):
 
 - **Cookie security**: Better Auth's session cookie is always `httpOnly` (never readable from
   client JS) and `secure` in production (`advanced.useSecureCookies: env.NODE_ENV ===
-  "production"`) — plain HTTP locally, HTTPS-only once deployed.
+"production"`) — plain HTTP locally, HTTPS-only once deployed.
 - **SameSite**: Better Auth's default, `Lax`, is not overridden. Fine for this app: no
   cross-site flow (OAuth redirect, cross-domain embed) needs a laxer setting, and `Lax` already
   blocks the cookie being sent on a cross-site POST, the main CSRF vector for a state-changing
@@ -201,9 +204,9 @@ built-in origin-header verification. No additional CSRF middleware was added thi
 
 ## Rate limiting
 
-`src/lib/rate-limit.ts` defines a `RateLimiter` interface with an in-memory implementation,
-unit-tested (`tests/unit/rate-limit.test.ts`). As of Phase 3B it is wired into the three flows
-Phase 3B requires protecting:
+`src/lib/rate-limit.ts` selects atomic Postgres counters in production and an in-memory
+fallback only for development/tests. The shared implementation hashes keys before storing
+them and is covered by concurrent integration tests. Protected flows include:
 
 - **Registration** (`registerCustomerAction`) and **resend verification**
   (`resendVerificationEmailAction`) each use their own limiter instance
@@ -216,29 +219,40 @@ Phase 3B requires protecting:
   limited via Better Auth's own built-in `rateLimit.customRules` (`src/lib/auth.ts`) instead of
   the app-level `RateLimiter`, at 10 attempts/60s per Better Auth's own (IP-based) key.
 
-**Known gap, unchanged**: both mechanisms' default storage is in-memory — state doesn't survive
-a restart and isn't shared across multiple serverless instances, so neither is production-safe
-as-is for a multi-instance deployment. Before production: implement `RateLimiter` against a
-shared store (e.g. Upstash Redis) for the app-level limiters, and switch Better Auth's
-`rateLimit.storage` to `"database"` or `"secondary-storage"` for its own — no caller-side
-changes needed for either, since both are already behind their respective interfaces/config.
+Better Auth uses `rateLimit.storage = "database"` in production. Checkout, order recovery,
+cart mutations and public consumer requests also apply bounded shared counters. Vercel's
+trusted forwarding headers identify client IPs; configure trusted forwarding correctly if
+hosting behind another proxy. No limiter replaces the permission checks in each action.
 
 ## Dependency advisories — known, tracked
 
-`npm audit` currently flags moderate/high advisories in `postcss`/`sharp` versions **bundled
-inside `next@16.2.11` itself** (not a top-level dependency choice made here) and, transitively,
-in `@better-auth/cli`'s own bundled Next.js copy (a dev-only CLI tool, not shipped to
-production). These are upstream framework/tooling issues, not application code; resolving them
-means waiting for a Next.js patch release, not downgrading the framework. Re-run `npm audit
---omit=dev` after any dependency update to confirm current status before shipping.
+Next is updated to 16.4.2; vulnerable mail/image/XML/CSV dependencies and indirect packages
+were updated. Runtime fiscal signing uses Node WebCrypto and PKIjs, not node-forge. Unused
+Better Auth/shadcn generators were removed; required static shadcn styles and license are
+vendored. The verified production audit (`npm audit --omit=dev`, 23/10/2026) reports zero
+known vulnerabilities. The full audit retains four development-only advisories in brace-expansion,
+js-yaml, undici and node-forge test fixtures; these tools must not serve public requests. Review them on each
+maintenance update; a clean runtime audit is not a security guarantee. Keep the overrides
+under review when updating parent dependencies.
 
 ## Not yet implemented (out of scope this phase, tracked for later)
 
 - Google OAuth / passkeys (Better Auth is architecturally ready — see
   [ARCHITECTURE.md](./ARCHITECTURE.md)).
-- Email verification *enforcement* at sign-in (`requireEmailVerification` stays `false` — see
+- Email verification _enforcement_ at sign-in (`requireEmailVerification` stays `false` — see
   "Session security" above for why). The verification flow itself (send, resend, verify) is
   implemented as of Phase 3B; only the global sign-in gate is deferred, to avoid locking out
   every pre-existing staff account.
-- Real fiscal/payment/shipping credential handling — those integrations are documented
-  interfaces only, see [INTEGRATIONS.md](./INTEGRATIONS.md).
+- Automatic fiscal production issuance, carrier APIs/label purchases and initiating provider
+  refunds from the dashboard. Manual/external fiscal recording, manual tracking and provider
+  refund/chargeback reconciliation are implemented; see [INTEGRATIONS.md](./INTEGRATIONS.md).
+
+## Direct database access
+
+Migration `20261023170000_restrict_direct_data_access` enables RLS on every application table
+and revokes business-table privileges from PUBLIC, anon and authenticated. The storefront
+and dashboard use the permission-checked Next.js server, never Supabase browser table access.
+Prisma must connect as the table owner or an explicitly configured server role; Storage keeps
+its separate schema and policies. Integration tests verify model coverage, no row visibility,
+blocked inserts, ineffective updates/deletes, and revoked Data API grants. See
+[Supabase RLS guidance](https://supabase.com/docs/guides/database/postgres/row-level-security).

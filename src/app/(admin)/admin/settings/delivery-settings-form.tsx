@@ -21,6 +21,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { updateDeliverySettingsAction } from "./actions";
 
 const formSchema = z.object({
+  homeDeliveryPostalCodes: z.string().max(1000),
+  homeDeliveryEstimate: z.string().max(200),
   homeDeliveryFlatFeeAmount: z.string(),
   pickupInstructions: z.string(),
 });
@@ -57,6 +59,39 @@ export function DeliverySettingsForm({
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <FormField
           control={form.control}
+          name="homeDeliveryPostalCodes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Códigos postales con envío</FormLabel>
+              <FormControl>
+                <Input {...field} disabled={!canManage} placeholder="5856, 5850" />
+              </FormControl>
+              <p className="text-muted-foreground text-sm">
+                Separá los códigos cubiertos por comas. Fuera de esta lista se ofrece retiro.
+              </p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="homeDeliveryEstimate"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Plazo estimado de entrega</FormLabel>
+              <FormControl>
+                <Input
+                  {...field}
+                  disabled={!canManage}
+                  placeholder="Indicá el plazo que realmente podés cumplir"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
           name="homeDeliveryFlatFeeAmount"
           render={({ field }) => (
             <FormItem>
@@ -87,8 +122,8 @@ export function DeliverySettingsForm({
                 />
               </FormControl>
               <p className="text-muted-foreground text-xs">
-                Se muestra en el checkout cuando el cliente elige retiro. Si queda vacío, se
-                muestra un mensaje genérico en su lugar.
+                Se muestra en el checkout cuando el cliente elige retiro. Si queda vacío, se muestra
+                un mensaje genérico en su lugar.
               </p>
               <FormMessage />
             </FormItem>

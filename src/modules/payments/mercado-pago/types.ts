@@ -55,6 +55,7 @@ export interface ProviderPayment {
   // amount-core.ts), so every caller past this point works in the same
   // BigInt-minor-units convention as the rest of this codebase.
   amount: bigint;
+  refundedAmount?: bigint;
   currency: string;
   approvedAt: Date | null;
 }

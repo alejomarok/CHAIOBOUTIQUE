@@ -5,7 +5,12 @@ import { env } from "@/lib/env-core";
 import { getMercadoPagoConfig } from "./config-core";
 import { mercadoPagoAmountToMinorUnits, minorUnitsToMercadoPagoAmount } from "./amount-core";
 import { FakeMercadoPagoClient } from "./fake-client-core";
-import type { CreateProviderPreferenceInput, MercadoPagoClient, ProviderPayment, ProviderPreference } from "./types";
+import type {
+  CreateProviderPreferenceInput,
+  MercadoPagoClient,
+  ProviderPayment,
+  ProviderPreference,
+} from "./types";
 
 // Node-safe core: no "server-only" import — mirrors modules/storage's
 // provider.ts/supabase-provider.ts exact interface+impl+test-injection
@@ -66,7 +71,8 @@ export class RealMercadoPagoClient implements MercadoPagoClient {
     // — this environment-driven choice is the whole reason
     // MERCADO_PAGO_ENVIRONMENT is required config rather than sniffed from
     // the token (see config-core.ts's own comment).
-    const checkoutUrl = environment === "TEST" ? preference.sandbox_init_point : preference.init_point;
+    const checkoutUrl =
+      environment === "TEST" ? preference.sandbox_init_point : preference.init_point;
     if (!checkoutUrl) {
       throw new Error("Mercado Pago no devolvió una URL de checkout.");
     }
@@ -84,7 +90,12 @@ export class RealMercadoPagoClient implements MercadoPagoClient {
       throw error;
     }
 
-    if (!payment.id || !payment.status || payment.transaction_amount === undefined || !payment.currency_id) {
+    if (
+      !payment.id ||
+      !payment.status ||
+      payment.transaction_amount === undefined ||
+      !payment.currency_id
+    ) {
       throw new Error(`Respuesta de pago de Mercado Pago incompleta (id ${providerPaymentId}).`);
     }
 
@@ -94,6 +105,7 @@ export class RealMercadoPagoClient implements MercadoPagoClient {
       statusDetail: payment.status_detail ?? null,
       externalReference: payment.external_reference ?? null,
       amount: mercadoPagoAmountToMinorUnits(payment.transaction_amount),
+      refundedAmount: mercadoPagoAmountToMinorUnits(payment.transaction_amount_refunded ?? 0),
       currency: payment.currency_id,
       approvedAt: payment.date_approved ? new Date(payment.date_approved) : null,
     };

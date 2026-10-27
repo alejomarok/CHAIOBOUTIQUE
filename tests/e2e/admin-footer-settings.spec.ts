@@ -52,6 +52,8 @@ test.describe("admin footer settings (real DB, real HTTP, real admin form)", () 
   test("configuring Instagram, then Facebook, then TikTok, then removing Facebook — the footer tracks each step exactly", async ({
     page,
   }) => {
+    // First-route compilation plus four real save/navigation cycles can exceed 30s.
+    test.setTimeout(120_000);
     await loginAsAdmin(page);
 
     // Step 1: only Instagram.
@@ -67,7 +69,9 @@ test.describe("admin footer settings (real DB, real HTTP, real admin form)", () 
 
     // Step 2: add Facebook (Instagram stays, pre-filled from the server).
     await page.goto("/admin/settings");
-    await expect(socialCard(page).getByLabel("Instagram")).toHaveValue("https://www.instagram.com/chaioboutique");
+    await expect(socialCard(page).getByLabel("Instagram")).toHaveValue(
+      "https://www.instagram.com/chaioboutique",
+    );
     await socialCard(page).getByLabel("Facebook").fill("https://www.facebook.com/chaioboutique");
     await socialCard(page).getByRole("button", { name: "Guardar cambios" }).click();
     await expect(page.getByText("Configuración actualizada correctamente.")).toBeVisible();
@@ -132,9 +136,9 @@ test.describe("admin footer settings (real DB, real HTTP, real admin form)", () 
     // Friendly CTA text, never the raw phone number or the wa.me URL
     // itself as visible text — the real configured number still drives
     // the actual link destination.
-    const waLink = page.getByRole("link", { name: /WhatsApp/ });
+    const waLink = page.getByRole("link", { name: "Escribinos por WhatsApp" });
     await expect(waLink).toBeVisible();
-    await expect(waLink).toHaveText("Escribinos");
+    await expect(waLink).toHaveText("Escribinos por WhatsApp");
     await expect(waLink).toHaveAttribute("href", /^https:\/\/wa\.me\/5493571123456$/);
     await expect(waLink).toHaveAttribute("target", "_blank");
     await expect(waLink).toHaveAttribute("rel", "noopener noreferrer");

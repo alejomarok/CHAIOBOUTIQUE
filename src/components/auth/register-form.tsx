@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff } from "lucide-react";
@@ -7,6 +8,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
+import { useFormReady } from "@/components/auth/use-form-ready";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -25,6 +27,7 @@ import { registerSchema, type RegisterInput } from "@/modules/auth/schemas";
 
 export function RegisterForm() {
   const router = useRouter();
+  const isFormReady = useFormReady();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -68,7 +71,7 @@ export function RegisterForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+      <form method="post" onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <FormField
           control={form.control}
           name="name"
@@ -124,7 +127,9 @@ export function RegisterForm() {
                   {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
-              <FormDescription>Mínimo 8 caracteres, con al menos una letra y un número.</FormDescription>
+              <FormDescription>
+                Mínimo 8 caracteres, con al menos una letra y un número.
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -155,9 +160,17 @@ export function RegisterForm() {
                 <Checkbox checked={field.value} onCheckedChange={field.onChange} />
               </FormControl>
               <div className="leading-tight">
-                {/* Plain text, not a link, until dedicated /terms content
-                    exists — a follow-up item, not part of this phase. */}
-                <FormLabel className="font-normal">Acepto los términos y condiciones</FormLabel>
+                <FormLabel className="font-normal">
+                  Acepto los{" "}
+                  <Link
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    términos y condiciones
+                  </Link>
+                </FormLabel>
                 <FormMessage />
               </div>
             </FormItem>
@@ -172,7 +185,17 @@ export function RegisterForm() {
                 <Checkbox checked={field.value} onCheckedChange={field.onChange} />
               </FormControl>
               <div className="leading-tight">
-                <FormLabel className="font-normal">Acepto la política de privacidad</FormLabel>
+                <FormLabel className="font-normal">
+                  Acepto la{" "}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    política de privacidad
+                  </Link>
+                </FormLabel>
                 <FormMessage />
               </div>
             </FormItem>
@@ -194,7 +217,7 @@ export function RegisterForm() {
             </FormItem>
           )}
         />
-        <Button type="submit" disabled={isSubmitting} className="mt-2">
+        <Button type="submit" disabled={!isFormReady || isSubmitting} className="mt-2">
           {isSubmitting ? "Creando cuenta…" : "Crear cuenta"}
         </Button>
       </form>

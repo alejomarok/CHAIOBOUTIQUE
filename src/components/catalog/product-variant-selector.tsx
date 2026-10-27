@@ -7,11 +7,10 @@ import { toast } from "sonner";
 import { addItemAction } from "@/app/(public)/cart/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MAX_ITEM_QUANTITY } from "@/modules/cart/constants";
 import type { PublicVariantDTO } from "@/modules/products/public-queries";
 import {
   findSelectedVariant,
-  isColorAvailable,
-  isSizeAvailable,
   listColorOptions,
   listSizeOptions,
   pickDefaultVariant,
@@ -59,6 +58,24 @@ export function ProductVariantSelector({
   const outOfStock = selectedVariant?.stockStatus === "OUT_OF_STOCK";
   const canAddToCart = Boolean(selectedVariant) && !outOfStock && !isPending;
 
+  function selectSize(sizeId: string) {
+    const nextVariant =
+      findSelectedVariant(variants, sizeId, selectedColorId) ??
+      pickDefaultVariant(variants.filter((variant) => variant.sizeOptionId === sizeId));
+    if (!nextVariant) return;
+    setSelectedSizeId(nextVariant.sizeOptionId);
+    setSelectedColorId(nextVariant.colorId);
+  }
+
+  function selectColor(colorId: string) {
+    const nextVariant =
+      findSelectedVariant(variants, selectedSizeId, colorId) ??
+      pickDefaultVariant(variants.filter((variant) => variant.colorId === colorId));
+    if (!nextVariant) return;
+    setSelectedSizeId(nextVariant.sizeOptionId);
+    setSelectedColorId(nextVariant.colorId);
+  }
+
   function handleAddToCart() {
     if (!selectedVariant) return;
     startTransition(async () => {
@@ -82,7 +99,7 @@ export function ProductVariantSelector({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-baseline gap-2">
-        <p className="font-heading text-3xl font-semibold">
+        <p className="text-2xl font-medium tabular-nums">
           {selectedVariant?.priceDisplay ?? firstInStock?.priceDisplay}
         </p>
         {(selectedVariant?.compareAtPriceDisplay ?? firstInStock?.compareAtPriceDisplay) && (
@@ -104,9 +121,10 @@ export function ProductVariantSelector({
                   type="button"
                   size="sm"
                   variant={isSelected ? "default" : "outline"}
-                  className={isSelected ? "ring-primary/30 ring-2 ring-offset-1" : ""}
-                  disabled={!isSizeAvailable(variants, size.id, selectedColorId)}
-                  onClick={() => setSelectedSizeId(size.id)}
+                  className={`min-h-11 min-w-11 px-4 ${isSelected ? "ring-primary/30 ring-2 ring-offset-1" : ""}`}
+                  disabled={isPending}
+                  aria-pressed={isSelected}
+                  onClick={() => selectSize(size.id)}
                 >
                   {size.name}
                 </Button>
@@ -128,9 +146,10 @@ export function ProductVariantSelector({
                   type="button"
                   size="sm"
                   variant={isSelected ? "default" : "outline"}
-                  className={isSelected ? "ring-primary/30 ring-2 ring-offset-1" : ""}
-                  disabled={!isColorAvailable(variants, color.id, selectedSizeId)}
-                  onClick={() => setSelectedColorId(color.id)}
+                  className={`min-h-11 min-w-11 px-4 ${isSelected ? "ring-primary/30 ring-2 ring-offset-1" : ""}`}
+                  disabled={isPending}
+                  aria-pressed={isSelected}
+                  onClick={() => selectColor(color.id)}
                 >
                   {color.name}
                 </Button>
@@ -164,28 +183,30 @@ export function ProductVariantSelector({
             type="button"
             variant="ghost"
             size="icon"
+            className="size-11"
             disabled={quantity <= 1 || isPending}
             onClick={() => setQuantity((q) => Math.max(1, q - 1))}
             aria-label="Restar cantidad"
           >
-            <Minus className="size-4" />
+            <Minus className="size-4" aria-hidden="true" />
           </Button>
           <span className="w-8 text-center text-sm tabular-nums">{quantity}</span>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            disabled={isPending}
-            onClick={() => setQuantity((q) => q + 1)}
+            className="size-11"
+            disabled={isPending || quantity >= MAX_ITEM_QUANTITY}
+            onClick={() => setQuantity((q) => Math.min(MAX_ITEM_QUANTITY, q + 1))}
             aria-label="Sumar cantidad"
           >
-            <Plus className="size-4" />
+            <Plus className="size-4" aria-hidden="true" />
           </Button>
         </div>
         <Button
           type="button"
           size="lg"
-          className="flex-1"
+          className="min-h-13 flex-1 rounded-none px-6"
           disabled={!canAddToCart}
           onClick={handleAddToCart}
         >
@@ -194,7 +215,7 @@ export function ProductVariantSelector({
       </div>
       {/* Required behavior: stock is checked again at checkout — being in
           the cart never reserves it. */}
-      <p className="text-muted-foreground text-xs">
+      <p className="text-muted-foreground text-[13px] leading-6">
         El stock se confirma definitivamente al finalizar la compra.
       </p>
     </div>

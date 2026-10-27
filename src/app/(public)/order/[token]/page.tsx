@@ -2,13 +2,21 @@ import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { minorUnitsToDisplay } from "@/lib/money";
 import { getOrderByAccessToken } from "@/modules/orders/order";
 import {
   DELIVERY_METHOD_LABELS_ES,
   ORDER_STATUS_BADGE_VARIANT,
   ORDER_STATUS_LABELS_ES,
+  ORDER_PAYMENT_STATUS_LABELS_ES,
 } from "@/modules/orders/order-labels";
 import { isMercadoPagoConfigured } from "@/modules/payments/mercado-pago";
 
@@ -16,7 +24,9 @@ import { PayWithMercadoPagoButton } from "./pay-with-mercado-pago-button";
 
 export const metadata = { title: "Tu pedido" };
 
-function formatAddress(order: NonNullable<Awaited<ReturnType<typeof getOrderByAccessToken>>>): string {
+function formatAddress(
+  order: NonNullable<Awaited<ReturnType<typeof getOrderByAccessToken>>>,
+): string {
   return [
     [order.shippingStreet, order.shippingNumber].filter(Boolean).join(" "),
     [order.shippingFloor, order.shippingApartment].filter(Boolean).join(" "),
@@ -41,7 +51,9 @@ export default async function OrderConfirmationPage({
 
   const now = new Date();
   const reservationActive =
-    order.status === "PENDING_PAYMENT" && order.reservationExpiresAt && order.reservationExpiresAt > now;
+    order.status === "PENDING_PAYMENT" &&
+    order.reservationExpiresAt &&
+    order.reservationExpiresAt > now;
   const minutesLeft = reservationActive
     ? Math.max(1, Math.ceil((order.reservationExpiresAt!.getTime() - now.getTime()) / 60_000))
     : null;
@@ -65,30 +77,29 @@ export default async function OrderConfirmationPage({
           Tu pedido necesita revisión. No vuelvas a pagar — nos vamos a contactar para resolverlo.
         </div>
       )}
-      {order.status === "PAID" && (
+      {order.paymentStatus === "PAID" && (
         <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">
           <p className="font-semibold">¡Pago confirmado!</p>
-          <p className="mt-1">
-            Pago: Mercado Pago — Estado: Pagado
-          </p>
-          <p className="mt-1">Estamos preparando tu pedido.</p>
+          <p className="mt-1">Pago: Mercado Pago — Estado: Pagado</p>
+          <p className="mt-1">{ORDER_STATUS_LABELS_ES[order.status]}</p>
         </div>
       )}
       {reservationActive && !order.requiresPaymentReview && (
         <div className="bg-blush/60 rounded-xl p-4 text-sm">
-          Tu pedido está reservado durante {minutesLeft} {minutesLeft === 1 ? "minuto" : "minutos"} mientras
-          completás el pago.
+          Tu pedido está reservado durante {minutesLeft} {minutesLeft === 1 ? "minuto" : "minutos"}{" "}
+          mientras completás el pago.
         </div>
       )}
       {order.status === "EXPIRED" && !order.requiresPaymentReview && (
         <div className="bg-muted rounded-xl p-4 text-sm">
-          El tiempo de reserva de este pedido venció y el stock fue liberado. Si querés, volvé a armar tu
-          carrito para intentar de nuevo.
+          El tiempo de reserva de este pedido venció y el stock fue liberado. Si querés, volvé a
+          armar tu carrito para intentar de nuevo.
         </div>
       )}
       {order.status === "CANCELLED" && (
         <div className="bg-muted rounded-xl p-4 text-sm">
-          Este pedido fue cancelado{order.cancellationReason ? `: ${order.cancellationReason}` : "."}
+          Este pedido fue cancelado
+          {order.cancellationReason ? `: ${order.cancellationReason}` : "."}
         </div>
       )}
 
@@ -111,7 +122,21 @@ export default async function OrderConfirmationPage({
         </CardHeader>
         <CardContent className="text-sm">
           <p className="font-medium">{DELIVERY_METHOD_LABELS_ES[order.deliveryMethod]}</p>
-          {order.deliveryMethod === "HOME_DELIVERY" && <p className="text-muted-foreground">{formatAddress(order)}</p>}
+          {order.deliveryMethod === "HOME_DELIVERY" && (
+            <p className="text-muted-foreground">{formatAddress(order)}</p>
+          )}
+          {order.trackingCarrier && <p>Transportista: {order.trackingCarrier}</p>}
+          {order.trackingNumber && <p>Código de seguimiento: {order.trackingNumber}</p>}
+          {order.trackingUrl && (
+            <a
+              href={order.trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex min-h-11 items-center underline"
+            >
+              Seguir el envío
+            </a>
+          )}
         </CardContent>
       </Card>
 
@@ -137,13 +162,19 @@ export default async function OrderConfirmationPage({
                       <p>{item.productNameSnapshot}</p>
                       {(item.sizeNameSnapshot || item.colorNameSnapshot) && (
                         <p className="text-muted-foreground text-xs">
-                          {[item.sizeNameSnapshot, item.colorNameSnapshot].filter(Boolean).join(" / ")}
+                          {[item.sizeNameSnapshot, item.colorNameSnapshot]
+                            .filter(Boolean)
+                            .join(" / ")}
                         </p>
                       )}
                     </TableCell>
                     <TableCell>{item.quantity}</TableCell>
-                    <TableCell>{minorUnitsToDisplay(item.unitPriceAmount, { currency: order.currency })}</TableCell>
-                    <TableCell>{minorUnitsToDisplay(item.totalAmount, { currency: order.currency })}</TableCell>
+                    <TableCell>
+                      {minorUnitsToDisplay(item.unitPriceAmount, { currency: order.currency })}
+                    </TableCell>
+                    <TableCell>
+                      {minorUnitsToDisplay(item.totalAmount, { currency: order.currency })}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -175,6 +206,27 @@ export default async function OrderConfirmationPage({
           </div>
         </CardContent>
       </Card>
+
+      {order.paymentAdjustments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{ORDER_PAYMENT_STATUS_LABELS_ES[order.paymentStatus]}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm">
+            <p>
+              El proveedor informó estos ajustes del pago. Si tenés dudas sobre la entrega o la
+              devolución de prendas, contactanos.
+            </p>
+            {order.paymentAdjustments.map((adjustment) => (
+              <p key={adjustment.id}>
+                {adjustment.kind === "REFUND" ? "Reembolso" : "Contracargo"}:{" "}
+                {minorUnitsToDisplay(adjustment.amount, { currency: adjustment.currency })} ·{" "}
+                {adjustment.createdAt.toLocaleDateString("es-AR")}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {order.status === "PENDING_PAYMENT" &&
         !order.requiresPaymentReview &&

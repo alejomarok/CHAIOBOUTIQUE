@@ -19,12 +19,7 @@ export function buildRateLimitKey(
   return `${action}:${normalizedEmail}:${ipAddress ?? "unknown"}`;
 }
 
-// In-memory (see lib/rate-limit.ts) — fine for local dev and a single
-// instance, NOT safe for a multi-instance production deployment (each
-// instance has its own counters). Before production, replace the
-// createRateLimiter() calls below with an implementation of the same
-// RateLimiter interface backed by a shared store (e.g. Upstash Redis), no
-// caller-side changes needed. See SECURITY.md.
+// Shared Postgres counters in production; in-memory fallback in local/test environments.
 export const registrationRateLimiter: RateLimiter = createRateLimiter(5, 60 * 60 * 1000);
 export const resendVerificationRateLimiter: RateLimiter = createRateLimiter(3, 10 * 60 * 1000);
 // Generous enough for real add/quantity-change/remove clicking, tight

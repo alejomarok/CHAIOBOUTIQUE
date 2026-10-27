@@ -6,5 +6,5 @@
 // visitor cannot claim to have accepted a version different from what's
 // actually live. Bump these (and update the corresponding legal copy)
 // whenever the terms/privacy policy text changes — see CONTRIBUTING.md.
-export const CURRENT_TERMS_VERSION = "2026-01-01";
-export const CURRENT_PRIVACY_VERSION = "2026-01-01";
+export const CURRENT_TERMS_VERSION = "2026-10-23";
+export const CURRENT_PRIVACY_VERSION = "2026-10-23";

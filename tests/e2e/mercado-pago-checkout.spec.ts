@@ -54,7 +54,11 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
     return { productName, variant, warehouse, actor };
   }
 
-  async function checkoutToOrderConfirmation(page: import("@playwright/test").Page, productName: string, email: string) {
+  async function checkoutToOrderConfirmation(
+    page: import("@playwright/test").Page,
+    productName: string,
+    email: string,
+  ) {
     await page.goto(`/catalog?q=${encodeURIComponent(productName)}`);
     await page.getByText(productName).click();
     await page.getByRole("button", { name: "Agregar al carrito" }).click();
@@ -73,6 +77,7 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
     await page.getByRole("button", { name: "Continuar" }).click();
 
     await expect(page.getByText(productName)).toBeVisible();
+    await page.getByRole("checkbox", { name: /Acepto los/ }).check();
     await page.getByRole("button", { name: "Confirmar pedido" }).click();
     await expect(page).toHaveURL(/\/order\/[A-Za-z0-9_-]{40,}$/, { timeout: 15_000 });
   }
@@ -80,7 +85,12 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
   test("approved payment: full journey from product to confirmed Sale with physically reduced stock", async ({
     page,
   }) => {
-    const { productName, variant, warehouse } = await setUpSellableProduct("MP Checkout", 150000n, 5);
+    test.setTimeout(180_000);
+    const { productName, variant, warehouse } = await setUpSellableProduct(
+      "MP Checkout",
+      150000n,
+      5,
+    );
     const email = `mp-e2e-${Date.now()}@test.chaioboutique.local`;
 
     await checkoutToOrderConfirmation(page, productName, email);
@@ -95,6 +105,7 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
       await prisma.inventoryReservation.deleteMany({ where: { orderId: order.id } });
       await prisma.orderPaymentAttempt.deleteMany({ where: { orderId: order.id } });
       await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+      await prisma.emailOutbox.deleteMany({ where: { orderId: order.id } });
       await prisma.order.delete({ where: { id: order.id } });
     });
 
@@ -106,7 +117,9 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
     // Approve -> fake checkout route fires a REAL, validly-signed webhook to
     // /api/webhooks/mercado-pago, then redirects to the return route.
     await page.getByTestId("fake-mp-approved").click();
-    await expect(page).toHaveURL(/\/order\/[A-Za-z0-9_-]{40,}\/payment\/return/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/order\/[A-Za-z0-9_-]{40,}\/payment\/return/, {
+      timeout: 10_000,
+    });
     await expect(page.getByText("¡Pago confirmado!")).toBeVisible({ timeout: 10_000 });
 
     // Server state is genuinely PAID — never just a redirect hint.
@@ -147,7 +160,9 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
     await expect(page.getByRole("link", { name: sale!.code })).toBeVisible();
   });
 
-  test("rejected payment: customer can retry while the reservation remains valid", async ({ page }) => {
+  test("rejected payment: customer can retry while the reservation remains valid", async ({
+    page,
+  }) => {
     const { productName } = await setUpSellableProduct("MP Rejected", 80000n, 5);
     const email = `mp-e2e-rejected-${Date.now()}@test.chaioboutique.local`;
 
@@ -159,6 +174,7 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
       await prisma.inventoryReservation.deleteMany({ where: { orderId: order.id } });
       await prisma.orderPaymentAttempt.deleteMany({ where: { orderId: order.id } });
       await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+      await prisma.emailOutbox.deleteMany({ where: { orderId: order.id } });
       await prisma.order.delete({ where: { id: order.id } });
     });
 
@@ -191,6 +207,7 @@ test.describe("Mercado Pago Checkout Pro (real DB, real HTTP, fake provider)", (
       await prisma.inventoryReservation.deleteMany({ where: { orderId: order.id } });
       await prisma.orderPaymentAttempt.deleteMany({ where: { orderId: order.id } });
       await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+      await prisma.emailOutbox.deleteMany({ where: { orderId: order.id } });
       await prisma.order.delete({ where: { id: order.id } });
     });
 

@@ -185,7 +185,8 @@ async function assertPurchasable(
   quantity: number,
 ): Promise<PurchaseCheck> {
   if (!Number.isInteger(quantity) || quantity <= 0) throw new InvalidQuantityError(quantity);
-  if (quantity > MAX_ITEM_QUANTITY) throw new QuantityLimitExceededError(quantity, MAX_ITEM_QUANTITY);
+  if (quantity > MAX_ITEM_QUANTITY)
+    throw new QuantityLimitExceededError(quantity, MAX_ITEM_QUANTITY);
 
   const snapshot = await loadVariantSnapshot(variantId);
   if (!snapshot) throw new VariantNotFoundError(variantId);
@@ -193,7 +194,8 @@ async function assertPurchasable(
     throw new VariantProductMismatchError();
   }
   if (!snapshot.isActive) throw new VariantInactiveError(variantId);
-  if (!isProductPurchasable(snapshot.product)) throw new ProductNotPurchasableError(snapshot.productId);
+  if (!isProductPurchasable(snapshot.product))
+    throw new ProductNotPurchasableError(snapshot.productId);
 
   const effectivePrice = getEffectivePrice({
     variantPriceAmount: snapshot.priceAmount,
@@ -272,9 +274,7 @@ async function getOrCreateCartRowWithFreshness(identity: CartIdentity): Promise<
       findActiveCartForUser(identity.userId),
     );
     if (existing) return { cart: existing, freshlyCreated: false };
-    const created = await timed("cart.createCartForUser", () =>
-      createCartForUser(identity.userId),
-    );
+    const created = await timed("cart.createCartForUser", () => createCartForUser(identity.userId));
     return { cart: created, freshlyCreated: true };
   }
 
@@ -289,7 +289,10 @@ async function getOrCreateCartRowWithFreshness(identity: CartIdentity): Promise<
       // Touch the expiry forward on every active use — an anonymous cart
       // being actively shopped must not expire mid-session.
       const touched = await timed("cart.touchExpiry", () =>
-        prisma.cart.update({ where: { id: existing.id }, data: { expiresAt: anonymousExpiryDate() } }),
+        prisma.cart.update({
+          where: { id: existing.id },
+          data: { expiresAt: anonymousExpiryDate() },
+        }),
       );
       return { cart: touched, freshlyCreated: false };
     }
@@ -343,6 +346,21 @@ export async function findExistingCartRow(): Promise<Cart | null> {
   return cart && isAnonymousCartUsable(cart) ? cart : null;
 }
 
+// A network retry may arrive after checkout converted the cart. Resolve it
+// from the same cookie/session identity, never from the submitted key alone.
+export async function findCheckoutRetryCartRow(idempotencyKey: string): Promise<Cart | null> {
+  const identity = await resolveCartIdentityReadOnly();
+  const order = await prisma.order.findUnique({
+    where: { idempotencyKey },
+    select: { checkoutCartId: true },
+  });
+  if (!order?.checkoutCartId) return null;
+  const cart = await prisma.cart.findUnique({ where: { id: order.checkoutCartId } });
+  if (!cart) return null;
+  if (identity.type === "user") return cart.userId === identity.userId ? cart : null;
+  return identity.token && cart.anonymousToken === identity.token ? cart : null;
+}
+
 // =============================================================================
 // DTO assembly — shared by getCart/getOrCreateCart so the two can never
 // disagree about shape or issue detection.
@@ -389,7 +407,8 @@ async function toCartDTO(cart: Cart): Promise<CartDTO> {
       variantPriceAmount: variant.priceAmount,
       productDefaultPriceAmount: product.defaultPriceAmount,
     });
-    const resolvedPrice = currentPrice !== null && currentPrice > 0n ? currentPrice : item.observedUnitPriceAmount;
+    const resolvedPrice =
+      currentPrice !== null && currentPrice > 0n ? currentPrice : item.observedUnitPriceAmount;
     const availableStock = await getAvailableStock(item.productVariantId);
 
     const issues = computeCartItemIssues({
@@ -423,7 +442,9 @@ async function toCartDTO(cart: Cart): Promise<CartDTO> {
       sku: variant.sku,
       quantity: item.quantity,
       unitPriceDisplay: minorUnitsToDisplay(resolvedPrice, { currency: cart.currency }),
-      lineTotalDisplay: minorUnitsToDisplay(resolvedPrice * BigInt(item.quantity), { currency: cart.currency }),
+      lineTotalDisplay: minorUnitsToDisplay(resolvedPrice * BigInt(item.quantity), {
+        currency: cart.currency,
+      }),
       imageUrl: primaryImage ? getProductImagePublicUrl(primaryImage) : null,
       issues,
     });
@@ -496,17 +517,22 @@ export async function addItem(input: AddItemInput): Promise<CartDTO> {
   const cart = await getOrCreateCartRow();
 
   const existing = await prisma.cartItem.findUnique({
-    where: { cartId_productVariantId: { cartId: cart.id, productVariantId: input.productVariantId } },
+    where: {
+      cartId_productVariantId: { cartId: cart.id, productVariantId: input.productVariantId },
+    },
   });
-  const targetQuantity = Math.min(
-    (existing?.quantity ?? 0) + input.quantity,
-    MAX_ITEM_QUANTITY,
+  const targetQuantity = Math.min((existing?.quantity ?? 0) + input.quantity, MAX_ITEM_QUANTITY);
+
+  const { effectivePrice } = await assertPurchasable(
+    input.productId,
+    input.productVariantId,
+    targetQuantity,
   );
 
-  const { effectivePrice } = await assertPurchasable(input.productId, input.productVariantId, targetQuantity);
-
   await prisma.cartItem.upsert({
-    where: { cartId_productVariantId: { cartId: cart.id, productVariantId: input.productVariantId } },
+    where: {
+      cartId_productVariantId: { cartId: cart.id, productVariantId: input.productVariantId },
+    },
     update: { quantity: targetQuantity, observedUnitPriceAmount: effectivePrice },
     create: {
       cartId: cart.id,
@@ -584,7 +610,9 @@ export async function clearCart(): Promise<CartDTO> {
 //      (now-stale) anonymous token finds nothing ACTIVE to merge and is a
 //      pure no-op — never a second merge of the same items.
 export async function mergeAnonymousCartIntoCustomerCart(): Promise<CartDTO> {
-  const identity = await timed("cart.merge.resolveIdentity", () => resolveCartIdentityForMutation());
+  const identity = await timed("cart.merge.resolveIdentity", () =>
+    resolveCartIdentityForMutation(),
+  );
   if (identity.type !== "user") {
     // Not signed in as a CUSTOMER (e.g. staff/admin, or a genuine guest) —
     // nothing to merge into. Callers only invoke this right after a
@@ -621,7 +649,9 @@ export async function mergeAnonymousCartIntoCustomerCart(): Promise<CartDTO> {
   const existingCustomerItems = await prisma.cartItem.findMany({
     where: { cartId: customerCart.id },
   });
-  const existingByVariant = new Map(existingCustomerItems.map((item) => [item.productVariantId, item]));
+  const existingByVariant = new Map(
+    existingCustomerItems.map((item) => [item.productVariantId, item]),
+  );
 
   await prisma.$transaction(async (tx) => {
     for (const anonymousItem of anonymousCart.items) {
@@ -636,7 +666,10 @@ export async function mergeAnonymousCartIntoCustomerCart(): Promise<CartDTO> {
 
       await tx.cartItem.upsert({
         where: {
-          cartId_productVariantId: { cartId: customerCart.id, productVariantId: anonymousItem.productVariantId },
+          cartId_productVariantId: {
+            cartId: customerCart.id,
+            productVariantId: anonymousItem.productVariantId,
+          },
         },
         update: {
           quantity: quantityToWrite,

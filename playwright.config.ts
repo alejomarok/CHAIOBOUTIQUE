@@ -47,7 +47,8 @@ export default defineConfig({
   workers: 1,
   retries: isCI ? 1 : 0,
   reporter: "list",
-  timeout: 30_000,
+  // Cold Webpack builds on Windows compile complete routes on first visit.
+  timeout: 90_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL: E2E_BASE_URL,
@@ -55,7 +56,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     actionTimeout: 10_000,
-    navigationTimeout: 15_000,
+    navigationTimeout: 60_000,
   },
   // Always starts a fresh instance (reuseExistingServer: false) — this must
   // never silently attach to a developer's already-running `next dev`,
@@ -64,7 +65,9 @@ export default defineConfig({
   // already occupied by another Next.js process, this intentionally fails
   // loudly instead of reusing it — stop that process first.
   webServer: {
-    command: `npx next dev -p ${E2E_PORT}`,
+    // Windows + Next 16.2.11 Turbopack can omit static children of dynamic
+    // routes at runtime. Match the working local development compiler.
+    command: `npx next dev --webpack -p ${E2E_PORT}`,
     url: E2E_BASE_URL,
     reuseExistingServer: false,
     env: {
@@ -90,7 +93,7 @@ export default defineConfig({
       MERCADO_PAGO_WEBHOOK_SECRET: "e2e-fake-webhook-secret",
       MERCADO_PAGO_ENVIRONMENT: "TEST",
     },
-    timeout: 60_000,
+    timeout: 120_000,
     stdout: "pipe",
     stderr: "pipe",
   },

@@ -57,15 +57,35 @@ export interface AdminNavGroup {
 export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "General",
-    items: [{ href: "/admin", label: "Panel", iconName: "layout-dashboard" }],
+    items: [{ href: "/admin", label: "Vista general", iconName: "layout-dashboard" }],
   },
   {
     label: "Catálogo",
     items: [
-      { href: "/admin/products", label: "Productos", iconName: "package", permission: "products.view" },
-      { href: "/admin/categories", label: "Categorías", iconName: "tags", permission: "categories.view" },
-      { href: "/admin/brands", label: "Marcas", iconName: "shield-check", permission: "brands.view" },
-      { href: "/admin/colors", label: "Colores", iconName: "palette", permission: "attributes.view" },
+      {
+        href: "/admin/products",
+        label: "Productos",
+        iconName: "package",
+        permission: "products.view",
+      },
+      {
+        href: "/admin/categories",
+        label: "Categorías",
+        iconName: "tags",
+        permission: "categories.view",
+      },
+      {
+        href: "/admin/brands",
+        label: "Marcas",
+        iconName: "shield-check",
+        permission: "brands.view",
+      },
+      {
+        href: "/admin/colors",
+        label: "Colores",
+        iconName: "palette",
+        permission: "attributes.view",
+      },
       {
         href: "/admin/size-groups",
         label: "Grupos de talles",
@@ -83,7 +103,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "Inventario",
     items: [
-      { href: "/admin/inventory", label: "Inventario", iconName: "boxes", permission: "stock.view" },
+      {
+        href: "/admin/inventory",
+        label: "Inventario",
+        iconName: "boxes",
+        permission: "stock.view",
+      },
       {
         href: "/admin/inventory/adjustments",
         label: "Ajustes",
@@ -96,15 +121,41 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         iconName: "arrow-left-right",
         permission: "stock.view_movements",
       },
-      { href: "/admin/warehouses", label: "Depósitos", iconName: "warehouse", permission: "warehouses.view" },
+      {
+        href: "/admin/warehouses",
+        label: "Depósitos",
+        iconName: "warehouse",
+        permission: "warehouses.view",
+      },
     ],
   },
   {
     label: "Comercial",
     items: [
-      { href: "/admin/customers", label: "Clientes", iconName: "contact", permission: "customers.view" },
-      { href: "/admin/sales", label: "Ventas", iconName: "shopping-cart", permission: "sales.view" },
-      { href: "/admin/orders", label: "Pedidos", iconName: "clipboard-list", permission: "orders.view" },
+      {
+        href: "/admin/customers",
+        label: "Clientes",
+        iconName: "contact",
+        permission: "customers.view",
+      },
+      {
+        href: "/admin/sales",
+        label: "Ventas",
+        iconName: "shopping-cart",
+        permission: "sales.view",
+      },
+      {
+        href: "/admin/orders",
+        label: "Pedidos",
+        iconName: "clipboard-list",
+        permission: "orders.view",
+      },
+      {
+        href: "/admin/requests",
+        label: "Solicitudes de clientes",
+        iconName: "contact",
+        permission: "orders.manage",
+      },
       {
         href: "/admin/sales/consultation",
         label: "Consultas de ventas",
@@ -117,9 +168,24 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: "Administración",
     items: [
       { href: "/admin/users", label: "Usuarias", iconName: "users", permission: "users.view" },
-      { href: "/admin/roles", label: "Roles", iconName: "shield-check", permission: "roles.manage" },
-      { href: "/admin/permissions", label: "Permisos", iconName: "key-round", permission: "roles.manage" },
-      { href: "/admin/settings", label: "Configuración", iconName: "settings", permission: "settings.view" },
+      {
+        href: "/admin/roles",
+        label: "Roles",
+        iconName: "shield-check",
+        permission: "roles.manage",
+      },
+      {
+        href: "/admin/permissions",
+        label: "Permisos",
+        iconName: "key-round",
+        permission: "roles.manage",
+      },
+      {
+        href: "/admin/settings",
+        label: "Configuración",
+        iconName: "settings",
+        permission: "settings.view",
+      },
     ],
   },
 ];

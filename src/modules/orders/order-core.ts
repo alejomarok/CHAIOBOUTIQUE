@@ -9,6 +9,10 @@ import type {
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db-core";
 import { env } from "@/lib/env-core";
+import { openSecret, sealSecret } from "@/lib/secret-box";
+import { enqueueOrderEmails } from "@/modules/email/outbox-core";
+import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from "@/modules/customers/legal";
+import { isPostalCodeCovered } from "./shipping-coverage";
 import { recordAuditLog } from "@/modules/audit/index-core";
 import { findPossibleDuplicateCustomers, createCustomer } from "@/modules/customers/customer-core";
 import { resolveSaleItemTaxSnapshot } from "@/modules/fiscal-documents/arca/fiscal-tax-category-core";
@@ -62,7 +66,9 @@ export class EmptyCartError extends Error {
 
 export class CartHasBlockingIssuesError extends Error {
   constructor() {
-    super("Uno o más productos de tu carrito ya no están disponibles. Volvé al carrito para revisarlos.");
+    super(
+      "Uno o más productos de tu carrito ya no están disponibles. Volvé al carrito para revisarlos.",
+    );
     this.name = "CartHasBlockingIssuesError";
   }
 }
@@ -131,6 +137,13 @@ export class MissingDeliveryAddressError extends Error {
   }
 }
 
+export class DeliveryCoverageError extends Error {
+  constructor() {
+    super("No ofrecemos envío a ese código postal. Elegí retiro o consultanos.");
+    this.name = "DeliveryCoverageError";
+  }
+}
+
 export class AddressNotFoundError extends Error {
   constructor() {
     super("La dirección seleccionada no existe o no te pertenece.");
@@ -175,6 +188,8 @@ export class CancellationReasonRequiredError extends Error {
 // =============================================================================
 
 export interface DeliveryMethodOption {
+  deliveryEstimate?: string | null;
+  postalCodes?: string | null;
   method: DeliveryMethod;
   label: string;
   feeAmount: bigint;
@@ -185,11 +200,22 @@ export interface DeliveryMethodOption {
 export async function listAvailableDeliveryMethods(): Promise<DeliveryMethodOption[]> {
   const config = await getStoreConfiguration();
   const options: DeliveryMethodOption[] = [
-    { method: "PICKUP", label: "Retiro", feeAmount: 0n, pickupInstructions: config.pickupInstructions },
+    {
+      method: "PICKUP",
+      label: "Retiro",
+      feeAmount: 0n,
+      pickupInstructions: config.pickupInstructions,
+    },
   ];
-  if (config.homeDeliveryFlatFeeAmount !== null) {
+  if (
+    config.homeDeliveryFlatFeeAmount !== null &&
+    config.homeDeliveryPostalCodes?.trim() &&
+    config.homeDeliveryEstimate?.trim()
+  ) {
     options.push({
       method: "HOME_DELIVERY",
+      deliveryEstimate: config.homeDeliveryEstimate,
+      postalCodes: config.homeDeliveryPostalCodes,
       label: "Envío a domicilio",
       feeAmount: config.homeDeliveryFlatFeeAmount,
       pickupInstructions: null,
@@ -223,6 +249,7 @@ export interface CheckoutAddressInput {
 }
 
 export interface CreateOrderFromCartInput {
+  policyAccepted?: boolean;
   // Already-resolved, server-derived identity — see this file's own doc
   // comment. Never resolved from cookies/session here.
   cartId: string;
@@ -263,7 +290,9 @@ function buildVariantDisplayName(variant: {
   sizeOption: { label: string } | null;
   color: { displayName: string } | null;
 }): string {
-  const sizeColor = [variant.sizeOption?.label, variant.color?.displayName].filter(Boolean).join(" / ");
+  const sizeColor = [variant.sizeOption?.label, variant.color?.displayName]
+    .filter(Boolean)
+    .join(" / ");
   return sizeColor ? `${variant.product.name} — ${sizeColor}` : variant.product.name;
 }
 
@@ -324,7 +353,11 @@ async function validateAndSnapshotCartItems(
     const displayName = buildVariantDisplayName(variant);
 
     const productPurchasable = isPubliclyVisible(
-      { status: product.status, categoryId: product.categoryId, defaultPriceAmount: product.defaultPriceAmount },
+      {
+        status: product.status,
+        categoryId: product.categoryId,
+        defaultPriceAmount: product.defaultPriceAmount,
+      },
       product.variants,
     );
     if (!variant.isActive || !productPurchasable) {
@@ -400,9 +433,7 @@ async function validateAndSnapshotCartItems(
   return resolved;
 }
 
-async function resolveShippingSnapshot(
-  input: CreateOrderFromCartInput,
-): Promise<{
+async function resolveShippingSnapshot(input: CreateOrderFromCartInput): Promise<{
   shippingAmount: bigint;
   fields: {
     shippingLabel: string | null;
@@ -440,8 +471,12 @@ async function resolveShippingSnapshot(
 
   if (input.existingAddressId) {
     if (!input.customerId) throw new AddressNotFoundError();
-    const address = await prisma.customerAddress.findUnique({ where: { id: input.existingAddressId } });
+    const address = await prisma.customerAddress.findUnique({
+      where: { id: input.existingAddressId },
+    });
     if (!address || address.customerId !== input.customerId) throw new AddressNotFoundError();
+    if (!isPostalCodeCovered(homeDelivery.postalCodes ?? null, address.postalCode))
+      throw new DeliveryCoverageError();
     return {
       shippingAmount: homeDelivery.feeAmount,
       fields: {
@@ -461,6 +496,8 @@ async function resolveShippingSnapshot(
 
   if (input.newAddress) {
     const a = input.newAddress;
+    if (!isPostalCodeCovered(homeDelivery.postalCodes ?? null, a.postalCode))
+      throw new DeliveryCoverageError();
     if (!a.street.trim() || !a.city.trim()) {
       throw new MissingDeliveryAddressError();
     }
@@ -523,26 +560,55 @@ async function generateOrderCode(tx: Prisma.TransactionClient): Promise<string> 
 //
 // Idempotency: checked FIRST, before phase 1 even runs — a retry with the
 // same idempotencyKey (double-click, network retry resubmitting the same
-// checkout) never creates a second Order. It CANNOT simply return the
-// original raw access token, though — only its hash was ever persisted
-// (see Order.accessTokenHash's own schema comment), so the true original
-// token is genuinely gone the moment the first request's response was
-// lost. Instead, a retry ROTATES the token: a fresh one is generated and
-// its hash overwrites accessTokenHash, invalidating the old (never
-// delivered to anyone, since the response that would have carried it never
-// arrived) one. This keeps "exactly one Order per logical checkout" while
-// still handing the retrying caller a usable confirmation link.
+// checkout) never creates a second Order. A retry recovers the encrypted
+// token after checking cart ownership, preserving previously queued emails.
 export async function createOrderFromCart(
+  input: CreateOrderFromCartInput,
+): Promise<CreateOrderFromCartResult> {
+  try {
+    return await createOrderFromCartOnce(input);
+  } catch (error) {
+    // A simultaneous request can finish between the initial lookup and INSERT.
+    // Recover only the same cart and identity, retaining the emailed access link.
+    const existing = await prisma.order.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+    });
+    if (
+      existing?.checkoutCartId === input.cartId &&
+      existing.userId === input.userId &&
+      existing.accessTokenEncrypted
+    ) {
+      return {
+        order: existing,
+        rawAccessToken: openSecret(existing.accessTokenEncrypted, "order-access"),
+      };
+    }
+    throw error;
+  }
+}
+
+async function createOrderFromCartOnce(
   input: CreateOrderFromCartInput,
 ): Promise<CreateOrderFromCartResult> {
   const existingByIdempotencyKey = await prisma.order.findUnique({
     where: { idempotencyKey: input.idempotencyKey },
   });
   if (existingByIdempotencyKey) {
-    const rawAccessToken = generateOrderAccessToken();
+    if (
+      existingByIdempotencyKey.checkoutCartId !== input.cartId ||
+      existingByIdempotencyKey.userId !== input.userId
+    ) {
+      throw new Error("No pudimos recuperar este pedido desde tu carrito.");
+    }
+    const rawAccessToken = existingByIdempotencyKey.accessTokenEncrypted
+      ? openSecret(existingByIdempotencyKey.accessTokenEncrypted, "order-access")
+      : generateOrderAccessToken();
     const order = await prisma.order.update({
       where: { id: existingByIdempotencyKey.id },
-      data: { accessTokenHash: hashOrderAccessToken(rawAccessToken) },
+      data: {
+        accessTokenHash: hashOrderAccessToken(rawAccessToken),
+        accessTokenEncrypted: sealSecret(rawAccessToken, "order-access"),
+      },
     });
     return { order, rawAccessToken };
   }
@@ -564,6 +630,12 @@ export async function createOrderFromCart(
   const reservationExpiresAt = new Date(Date.now() + RESERVATION_WINDOW_MINUTES * 60_000);
 
   const order = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM cart WHERE id = ${input.cartId} FOR UPDATE`;
+    const cart = await tx.cart.findUnique({
+      where: { id: input.cartId },
+      select: { status: true },
+    });
+    if (cart?.status !== "ACTIVE") throw new EmptyCartError();
     const code = await generateOrderCode(tx);
 
     const created = await tx.order.create({
@@ -586,6 +658,11 @@ export async function createOrderFromCart(
         ...shippingFields,
         notes: input.notes?.trim() || null,
         accessTokenHash,
+        accessTokenEncrypted: sealSecret(rawAccessToken, "order-access"),
+        checkoutCartId: input.cartId,
+        termsVersion: input.policyAccepted ? CURRENT_TERMS_VERSION : null,
+        privacyVersion: input.policyAccepted ? CURRENT_PRIVACY_VERSION : null,
+        policyAcceptedAt: input.policyAccepted ? new Date() : null,
         idempotencyKey: input.idempotencyKey,
         reservationExpiresAt,
         submittedAt: new Date(),
@@ -621,6 +698,7 @@ export async function createOrderFromCart(
       tx,
     );
 
+    await enqueueOrderEmails(tx, created.id, "created");
     return created;
   });
 
@@ -632,6 +710,7 @@ export async function createOrderFromCart(
 // =============================================================================
 
 const orderDetailInclude = {
+  paymentAdjustments: { orderBy: { createdAt: "desc" as const } },
   items: { orderBy: { createdAt: "asc" as const } },
   customer: { select: { id: true, code: true, type: true } },
   user: { select: { id: true, name: true, email: true } },
@@ -680,7 +759,9 @@ export interface ListOrdersInput {
 // available" per this phase's own spec — the linked Customer's document
 // number via a live join, since a fiscal document is a find-by key, not
 // something this model snapshots historically the way contact info is.
-export async function listOrders(input: ListOrdersInput = {}): Promise<{ orders: Order[]; total: number }> {
+export async function listOrders(
+  input: ListOrdersInput = {},
+): Promise<{ orders: Order[]; total: number }> {
   const take = input.take ?? 25;
   const skip = input.skip ?? 0;
   const searchTerm = input.search?.trim();
@@ -716,7 +797,11 @@ export async function listOrders(input: ListOrdersInput = {}): Promise<{ orders:
 // yet) — documented as deferred, not silently missing.
 // =============================================================================
 
-export async function cancelOrder(orderId: string, reason: string, actorId: string): Promise<Order> {
+export async function cancelOrder(
+  orderId: string,
+  reason: string,
+  actorId: string,
+): Promise<Order> {
   const trimmedReason = reason.trim();
   if (!trimmedReason) throw new CancellationReasonRequiredError();
 
@@ -775,7 +860,9 @@ export async function cancelOrder(orderId: string, reason: string, actorId: stri
 // or still genuinely ACTIVE — only mutates when status is PENDING_PAYMENT
 // AND reservationExpiresAt has genuinely passed; every other case is a
 // pure, side-effect-free read.
-export async function expireOrderIfStale(orderId: string): Promise<{ order: Order; justExpired: boolean }> {
+export async function expireOrderIfStale(
+  orderId: string,
+): Promise<{ order: Order; justExpired: boolean }> {
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) throw new OrderNotFoundError();
@@ -839,7 +926,7 @@ export interface ReservationSchedulerReadiness {
 export function getReservationSchedulerReadiness(): ReservationSchedulerReadiness {
   return {
     reservationWindowMinutes: RESERVATION_WINDOW_MINUTES,
-    internalEndpointConfigured: Boolean(env.INTERNAL_TASK_SECRET),
+    internalEndpointConfigured: Boolean(env.CRON_SECRET || env.INTERNAL_TASK_SECRET),
   };
 }
 
@@ -989,7 +1076,9 @@ async function resolveCustomerForFinalization(
     tx,
   );
   if (result.status !== "created") {
-    throw new Error("unreachable: createCustomer with confirmed:true never returns possible_duplicates");
+    throw new Error(
+      "unreachable: createCustomer with confirmed:true never returns possible_duplicates",
+    );
   }
   return result.customer.id;
 }
@@ -1050,7 +1139,9 @@ async function finalizePaidOrderTransactionally(
     `;
     if (!locked) throw new OrderNotFoundError();
 
-    if (locked.status === "PAID") {
+    if (
+      ["PAID", "PROCESSING", "READY_FOR_PICKUP", "SHIPPED", "DELIVERED"].includes(locked.status)
+    ) {
       const order = await tx.order.findUniqueOrThrow({ where: { id: input.orderId } });
       const sale = await tx.sale.findUnique({ where: { orderId: input.orderId } });
       return { order, sale, outcome: "already_finalized" as const };
@@ -1066,7 +1157,8 @@ async function finalizePaidOrderTransactionally(
     // own authoritative, immutable-after-creation totalAmount/currency,
     // never the OrderPaymentAttempt's cached snapshot (see that model's own
     // comment) and never trusted from the provider notification alone.
-    const currencyMismatch = locked.currency.toUpperCase() !== input.paymentContext.approvedCurrency.toUpperCase();
+    const currencyMismatch =
+      locked.currency.toUpperCase() !== input.paymentContext.approvedCurrency.toUpperCase();
     const amountMismatch = locked.totalAmount !== input.paymentContext.approvedAmount;
     if (currencyMismatch || amountMismatch) {
       return markOrderPaymentRequiresReviewWithinTransaction(
@@ -1231,16 +1323,22 @@ async function finalizePaidOrderTransactionally(
         entityId: order.id,
         previousValue: { status: order.status },
         newValue: { status: "PAID", saleId: sale.id },
-        metadata: { provider: "MERCADO_PAGO", providerPaymentId: input.paymentContext.providerPaymentId },
+        metadata: {
+          provider: "MERCADO_PAGO",
+          providerPaymentId: input.paymentContext.providerPaymentId,
+        },
       },
       tx,
     );
 
+    await enqueueOrderEmails(tx, order.id, "paid");
     return { order: updatedOrder, sale, outcome: "finalized" as const };
   });
 }
 
-export async function finalizePaidOrder(input: FinalizePaidOrderInput): Promise<FinalizePaidOrderResult> {
+export async function finalizePaidOrder(
+  input: FinalizePaidOrderInput,
+): Promise<FinalizePaidOrderResult> {
   const systemActorId = await getSystemAccountUserId();
   // Resolved once, outside the transaction — same posture as
   // modules/sales/sale-core.ts's createSale/updateSale.

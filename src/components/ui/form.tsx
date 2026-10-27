@@ -10,12 +10,30 @@ import {
   type ControllerProps,
   type FieldPath,
   type FieldValues,
+  type FormProviderProps,
 } from "react-hook-form";
 
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 
-const Form = FormProvider;
+const subscribeToHydration = () => () => {};
+const hydratedSnapshot = () => true;
+const serverSnapshot = () => false;
+
+function Form<TFieldValues extends FieldValues>({
+  children,
+  ...props
+}: FormProviderProps<TFieldValues>) {
+  const ready = React.useSyncExternalStore(subscribeToHydration, hydratedSnapshot, serverSnapshot);
+  return (
+    <FormProvider {...props}>
+      {/* Prevent native submission and inert custom controls before their handlers attach. */}
+      <fieldset disabled={!ready} className="contents">
+        {children}
+      </fieldset>
+    </FormProvider>
+  );
+}
 
 type FormFieldContextValue<
   TFieldValues extends FieldValues = FieldValues,

@@ -7,7 +7,11 @@ import { prisma } from "@/lib/db";
 import { createTestUser, deleteTestUser } from "../fixtures/users";
 import { createCategory } from "@/modules/categories/service";
 import { createCustomer } from "@/modules/customers/customer";
-import { adjustInventory, getAvailableToSell, getInventoryBalance } from "@/modules/inventory/service";
+import {
+  adjustInventory,
+  getAvailableToSell,
+  getInventoryBalance,
+} from "@/modules/inventory/service";
 import {
   AddressNotFoundError,
   CancellationReasonRequiredError,
@@ -61,21 +65,36 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
   // variant here must be explicitly published, mirroring tests/integration/
   // cart.test.ts's own exact setup pattern.
   async function makeSellableVariant(actorId: string, priceAmount: bigint = 100000n) {
-    const category = await createCategory({ name: `Ord Cat ${Date.now()}-${Math.random()}` }, actorId);
+    const category = await createCategory(
+      { name: `Ord Cat ${Date.now()}-${Math.random()}` },
+      actorId,
+    );
     const product = await createProduct(
       { name: `Ord Producto ${Date.now()}-${Math.random()}`, categoryId: category.id },
       actorId,
     );
     const [variant] = await createVariants(
       product.id,
-      [{ sizeOptionId: null, colorId: null, sku: `ORD-SKU-${Date.now()}-${Math.random()}`, priceAmount }],
+      [
+        {
+          sizeOptionId: null,
+          colorId: null,
+          sku: `ORD-SKU-${Date.now()}-${Math.random()}`,
+          priceAmount,
+        },
+      ],
       actorId,
     );
     await setProductStatus(product.id, "ACTIVE", actorId);
     return variant;
   }
 
-  async function seedStock(variantId: string, warehouseId: string, quantity: number, actorId: string) {
+  async function seedStock(
+    variantId: string,
+    warehouseId: string,
+    quantity: number,
+    actorId: string,
+  ) {
     await adjustInventory({
       variantId,
       warehouseId,
@@ -119,9 +138,19 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
     });
   }
 
-  async function addCartItem(cartId: string, variantId: string, quantity: number, observedPrice: bigint) {
+  async function addCartItem(
+    cartId: string,
+    variantId: string,
+    quantity: number,
+    observedPrice: bigint,
+  ) {
     return prisma.cartItem.create({
-      data: { cartId, productVariantId: variantId, quantity, observedUnitPriceAmount: observedPrice },
+      data: {
+        cartId,
+        productVariantId: variantId,
+        quantity,
+        observedUnitPriceAmount: observedPrice,
+      },
     });
   }
 
@@ -145,7 +174,11 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
       cartId: cart.id,
       userId: customerUser.id,
       customerId: customer.id,
-      contact: { firstName: "Cliente", lastName: "Auth", email: "cliente-auth@test.chaioboutique.local" },
+      contact: {
+        firstName: "Cliente",
+        lastName: "Auth",
+        email: "cliente-auth@test.chaioboutique.local",
+      },
       deliveryMethod: "PICKUP",
       idempotencyKey: crypto.randomUUID(),
     });
@@ -191,7 +224,11 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
       cartId: cart.id,
       userId: null,
       customerId: null,
-      contact: { firstName: "Invitado", lastName: "Prueba", email: "invitado@test.chaioboutique.local" },
+      contact: {
+        firstName: "Invitado",
+        lastName: "Prueba",
+        email: "invitado@test.chaioboutique.local",
+      },
       deliveryMethod: "PICKUP",
       idempotencyKey: crypto.randomUUID(),
     });
@@ -263,7 +300,9 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
     ).rejects.toThrow(PriceChangedError);
 
     // No Order was created.
-    expect(await prisma.order.count({ where: { code: { contains: "" } } })).toBeGreaterThanOrEqual(0);
+    expect(await prisma.order.count({ where: { code: { contains: "" } } })).toBeGreaterThanOrEqual(
+      0,
+    );
 
     // The cart's observed price was corrected — a retry now succeeds.
     const correctedItem = await prisma.cartItem.findFirstOrThrow({ where: { cartId: cart.id } });
@@ -364,14 +403,24 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
     });
 
     expect(second.order.id).toBe(first.order.id);
-    // The token is rotated on retry (the original was never persisted in
-    // plaintext) — the old raw token stops resolving, the new one works.
-    expect(second.rawAccessToken).not.toBe(first.rawAccessToken);
-    expect(await getOrderByAccessToken(first.rawAccessToken)).toBeNull();
+    // Retrying must preserve the private link already queued in the confirmation email.
+    expect(second.rawAccessToken).toBe(first.rawAccessToken);
+    expect((await getOrderByAccessToken(first.rawAccessToken))?.id).toBe(first.order.id);
     expect((await getOrderByAccessToken(second.rawAccessToken))?.id).toBe(first.order.id);
 
     const orderCount = await prisma.order.count({ where: { idempotencyKey } });
     expect(orderCount).toBe(1);
+    const otherCart = await makeCart();
+    await expect(
+      createOrderFromCart({
+        cartId: otherCart.id,
+        userId: null,
+        customerId: null,
+        contact: { firstName: "A", lastName: "B", email: "a@test.chaioboutique.local" },
+        deliveryMethod: "PICKUP",
+        idempotencyKey,
+      }),
+    ).rejects.toThrow(/tu carrito/);
   });
 
   describe("delivery methods and address handling", () => {
@@ -399,7 +448,14 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
 
     it("snapshots a new inline address, and applies the configured flat fee", async () => {
       const actor = await makeActor();
-      await updateStoreConfiguration({ homeDeliveryFlatFeeAmount: 25000n }, actor.id);
+      await updateStoreConfiguration(
+        {
+          homeDeliveryFlatFeeAmount: 25000n,
+          homeDeliveryPostalCodes: "5856",
+          homeDeliveryEstimate: "2 a 5 días hábiles",
+        },
+        actor.id,
+      );
       const variant = await makeSellableVariant(actor.id, 100000n);
       const warehouseId = await getDefaultWarehouseId();
       await seedStock(variant.id, warehouseId, 5, actor.id);
@@ -412,7 +468,12 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
         customerId: null,
         contact: { firstName: "A", lastName: "B", email: "a@test.chaioboutique.local" },
         deliveryMethod: "HOME_DELIVERY",
-        newAddress: { street: "Av. Siempre Viva", number: "742", city: "Springfield" },
+        newAddress: {
+          street: "Av. Siempre Viva",
+          number: "742",
+          city: "Springfield",
+          postalCode: "5856",
+        },
         idempotencyKey: crypto.randomUUID(),
       });
 
@@ -426,7 +487,14 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
 
     it("rejects an existingAddressId that does not belong to the checking-out customer", async () => {
       const actor = await makeActor();
-      await updateStoreConfiguration({ homeDeliveryFlatFeeAmount: 10000n }, actor.id);
+      await updateStoreConfiguration(
+        {
+          homeDeliveryFlatFeeAmount: 10000n,
+          homeDeliveryPostalCodes: "5856",
+          homeDeliveryEstimate: "2 a 5 días hábiles",
+        },
+        actor.id,
+      );
       const ownerCustomer = await makePersonCustomer(actor.id);
       const otherCustomer = await makePersonCustomer(actor.id);
       const address = await prisma.customerAddress.create({
@@ -517,7 +585,9 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
         { customerId: posCustomer.id, items: [{ productVariantId: variant.id, quantity: 4 }] },
         actor.id,
       );
-      await expect(confirmSale(draftTooMuch.id, actor.id)).rejects.toThrow(InsufficientSaleStockError);
+      await expect(confirmSale(draftTooMuch.id, actor.id)).rejects.toThrow(
+        InsufficientSaleStockError,
+      );
 
       const draftOk = await createSale(
         { customerId: posCustomer.id, items: [{ productVariantId: variant.id, quantity: 3 }] },
@@ -619,7 +689,9 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
         idempotencyKey: crypto.randomUUID(),
       });
 
-      await expect(cancelOrder(order.id, "", actor.id)).rejects.toThrow(CancellationReasonRequiredError);
+      await expect(cancelOrder(order.id, "", actor.id)).rejects.toThrow(
+        CancellationReasonRequiredError,
+      );
     });
 
     it("rejects cancelling an Order that already left PENDING_PAYMENT", async () => {
@@ -662,7 +734,11 @@ describe("orders — Online Orders & Checkout foundation (real DB)", () => {
         cartId: cart.id,
         userId: null,
         customerId: null,
-        contact: { firstName: uniqueName, lastName: "Apellido", email: "buscame@test.chaioboutique.local" },
+        contact: {
+          firstName: uniqueName,
+          lastName: "Apellido",
+          email: "buscame@test.chaioboutique.local",
+        },
         deliveryMethod: "PICKUP",
         idempotencyKey: crypto.randomUUID(),
       });

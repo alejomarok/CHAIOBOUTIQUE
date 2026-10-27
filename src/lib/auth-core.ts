@@ -83,9 +83,8 @@ export const auth = betterAuth({
   // own RateLimiter in lib/rate-limiters.ts can't reach it). Registration
   // and resend-verification DO go through app-owned Server Actions and are
   // rate-limited there instead, keyed by normalized email + IP (see
-  // lib/rate-limiters.ts) rather than IP alone. `storage` stays at its
-  // "memory" default: not shared across instances, documented as a
-  // pre-production gap in the same place as lib/rate-limit.ts's.
+  // lib/rate-limiters.ts) rather than IP alone. Production persists native
+  // counters in PostgreSQL so every Vercel instance shares the same limits.
   //
   // Raised (never disabled — this endpoint's rate limiting itself stays
   // exercised) only under E2E_TEST_MODE: the whole Playwright suite shares
@@ -97,6 +96,7 @@ export const auth = betterAuth({
   // which is only ever set by playwright.config.ts's webServer.env.
   rateLimit: {
     enabled: true,
+    storage: env.NODE_ENV === "production" ? "database" : "memory",
     customRules: {
       "/sign-in/email": { window: 60, max: env.E2E_TEST_MODE ? 200 : 10 },
     },

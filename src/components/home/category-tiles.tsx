@@ -8,12 +8,7 @@ import { listPublicProducts } from "@/modules/products/public-queries";
 
 const MAX_TILES = 4;
 
-const TILE_BACKGROUNDS = [
-  "bg-[#f3dfd7]",
-  "bg-[#e7f2f2]",
-  "bg-[#eee7de]",
-  "bg-[#f2e9dc]",
-];
+const TILE_BACKGROUNDS = ["bg-[#eeede7]", "bg-[#e9ece5]", "bg-[#eeede7]", "bg-[#e9ece5]"];
 
 // Image priority (Phase — Admin-Controlled Category Images):
 //   1. The category's own admin-controlled storefront image
@@ -22,7 +17,8 @@ const TILE_BACKGROUNDS = [
 //      for backward compatibility with a category nobody has curated an
 //      image for yet — never a broken tile just because migration added
 //      these columns as null on every pre-existing category.
-//   3. ProductImage's own neutral placeholder when neither exists.
+//   3. An editorial campaign image when neither exists. Product detail
+//      images remain the merchant's own photos; campaign art is not a SKU.
 // Never an extra per-category product query once a category HAS its own
 // image: the fallback's listPublicProducts call only runs for categories
 // that actually need it, so a fully-curated set of tiles costs zero N+1
@@ -40,7 +36,11 @@ export async function CategoryTiles() {
       if (category.imageBucket && category.imagePath) {
         return {
           category,
-          imageUrl: getCategoryImagePublicUrl({ imageBucket: category.imageBucket, imagePath: category.imagePath }),
+          imageUrl: getCategoryImagePublicUrl({
+            imageBucket: category.imageBucket,
+            imagePath: category.imagePath,
+          }),
+          campaign: false,
         };
       }
 
@@ -50,50 +50,68 @@ export async function CategoryTiles() {
         sort: "newest",
       });
 
-      return { category, imageUrl: product?.primaryImageUrl ?? null };
+      const name = category.name.toLocaleLowerCase("es-AR");
+      const campaignFile = /vestid|falda/.test(name)
+        ? "movement"
+        : /pantal|conjunto|sastr/.test(name)
+          ? "linen"
+          : /remera|camisa|top/.test(name)
+            ? "hero"
+            : "detail";
+      return {
+        category,
+        imageUrl:
+          product?.primaryImageUrl ?? `/images/campaign/chaio-campaign-${campaignFile}.webp`,
+        campaign: !product?.primaryImageUrl,
+      };
     }),
   );
 
   return (
-    <section className="bg-[#fffdfb] py-16 sm:py-20 lg:py-24">
-      <div className="mx-auto max-w-[1380px] px-5 sm:px-8 lg:px-10">
-        <div className="mb-9 flex flex-col gap-3 text-center sm:mb-12">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#a37c6c]">
-            Encontrá tu próximo favorito
-          </p>
-          <h2 className="font-heading text-3xl font-medium tracking-[-0.025em] text-[#342d29] sm:text-4xl">
-            Explorá tu estilo ideal
+    <section className="bg-[#f0f0e9] py-16 sm:py-20" aria-labelledby="categories-title">
+      <div className="mx-auto max-w-[1440px] px-6 sm:px-10 lg:px-16">
+        <div className="mb-9 flex flex-col gap-4 sm:mb-12">
+          <h2
+            id="categories-title"
+            data-reveal
+            className="font-heading text-4xl font-normal tracking-[-0.035em] sm:text-5xl"
+          >
+            Cada día, un estilo.
           </h2>
-          <p className="mx-auto max-w-xl text-sm leading-6 text-[#80756f] sm:text-base">
-            Descubrí la colección por categorías y encontrá esas prendas que se sienten tan vos.
+          <p data-reveal className="text-muted-foreground max-w-xl text-base leading-6">
+            Explorá la colección y hacela tuya.
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
-          {tiles.map(({ category, imageUrl }, index) => (
+        <div
+          className={`grid grid-cols-2 gap-4 sm:gap-6 ${tiles.length === 3 ? "lg:grid-cols-3" : tiles.length === 4 ? "lg:grid-cols-4" : ""}`}
+        >
+          {tiles.map(({ category, imageUrl, campaign }, index) => (
             <Link
               key={category.id}
+              data-reveal
               href={`/catalog?category=${category.id}`}
-              className={`group relative aspect-[3/4] overflow-hidden rounded-[1.7rem] ${TILE_BACKGROUNDS[index % TILE_BACKGROUNDS.length]} shadow-[0_12px_32px_rgba(80,58,45,0.06)]`}
+              className={`group relative aspect-[3/4] overflow-hidden ${TILE_BACKGROUNDS[index % TILE_BACKGROUNDS.length]}`}
             >
               <ProductImage
                 src={imageUrl}
-                alt={category.imageAltText || category.name}
+                alt={
+                  campaign
+                    ? `Inspiración de estilo para ${category.name}`
+                    : category.imageAltText || category.name
+                }
                 sizes="(min-width: 1024px) 25vw, 50vw"
                 className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.05]"
               />
 
-              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
+              <div aria-hidden="true" className="absolute inset-0 bg-black/40" />
 
               <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-4 text-white sm:p-5">
                 <div>
-                  <p className="font-heading text-lg font-medium sm:text-2xl">{category.name}</p>
-                  <p className="mt-1 text-[11px] text-white/80">
-                    {category._count.products} {category._count.products === 1 ? "producto" : "productos"}
-                  </p>
+                  <p className="font-heading text-xl font-normal sm:text-3xl">{category.name}</p>
                 </div>
 
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#3d3430] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/90 text-[#3d3430] transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
                   <ArrowUpRight className="size-4" aria-hidden="true" />
                 </span>
               </div>

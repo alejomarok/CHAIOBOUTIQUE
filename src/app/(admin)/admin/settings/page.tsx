@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { minorUnitsToDisplay } from "@/lib/money";
 import { requirePermission } from "@/modules/auth";
-import { listBranches } from "@/modules/store-branches/branch";
+import { listActiveBranches } from "@/modules/store-branches/branch";
 import { getStoreConfiguration } from "@/modules/store-settings/service";
 
 import { ArcaReadinessCard } from "./arca-readiness-card";
@@ -22,7 +23,10 @@ export const metadata = { title: "Configuración" };
 
 export default async function StoreSettingsPage() {
   const user = await requirePermission("settings.view");
-  const [storeConfiguration, branches] = await Promise.all([getStoreConfiguration(), listBranches()]);
+  const [storeConfiguration, branches] = await Promise.all([
+    getStoreConfiguration(),
+    listActiveBranches(),
+  ]);
   const canManage = user.permissions.has("settings.manage");
 
   return (
@@ -30,6 +34,12 @@ export default async function StoreSettingsPage() {
       <div>
         <h1 className="font-heading text-2xl font-semibold">Configuración de la tienda</h1>
         <p className="text-muted-foreground text-sm">Datos generales de la tienda.</p>
+        <Link
+          href="/admin/settings/production"
+          className="mt-3 inline-flex min-h-11 items-center underline"
+        >
+          Ver preparación para publicar y estado de correos
+        </Link>
       </div>
       <Card>
         <CardHeader>
@@ -63,6 +73,8 @@ export default async function StoreSettingsPage() {
                   ? toEditableAmount(storeConfiguration.homeDeliveryFlatFeeAmount)
                   : "",
               pickupInstructions: storeConfiguration.pickupInstructions ?? "",
+              homeDeliveryPostalCodes: storeConfiguration.homeDeliveryPostalCodes ?? "",
+              homeDeliveryEstimate: storeConfiguration.homeDeliveryEstimate ?? "",
             }}
             canManage={canManage}
           />

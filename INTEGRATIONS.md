@@ -59,26 +59,18 @@ server-side processing (thumbnails, format normalization) becomes a real require
 `SUPABASE_PRODUCT_IMAGES_BUCKET` (default `product-images`) is a public bucket — product photos
 are customer-facing by nature; nothing sensitive is ever stored in it.
 
-## Email — Mailpit (dev) implemented; Resend (production) deferred
+## Email — SMTP real y cola persistente
 
-**Status: dev implementation only.** `src/modules/email/`:
+`SmtpEmailProvider` gestiona recuperación de contraseña y verificación. En desarrollo se
+usa Mailpit; en producción, cualquier relay SMTP real con TLS y dominio remitente verificado.
+No es necesario implementar una API de Resend para publicar.
 
-```ts
-interface EmailProvider {
-  send(input: SendEmailInput): Promise<void>;
-}
-```
-
-`SmtpEmailProvider` (nodemailer, SMTP) is the only implementation, pointed at Mailpit
-(`SMTP_HOST=localhost`, `SMTP_PORT=1025`) in dev — currently used for the password-reset flow
-(`sendPasswordResetEmail` in `src/modules/email/index.ts`, called from Better Auth's
-`sendResetPassword` config).
-
-**To go to production**: implement a `ResendEmailProvider` against the `resend` package (not
-installed yet — deliberately, since there's no API key to configure), read `RESEND_API_KEY` from
-env, and swap it in via `getEmailProvider()`. Future notification types (order confirmation,
-shipment, low-stock alerts, etc. — see the original requirements) all go through this same
-interface once their triggering modules exist.
+`modules/email/outbox-core.ts` registra confirmaciones de pedido/pago, cambios de entrega,
+ajustes financieros y solicitudes en la misma transacción de negocio. El texto se cifra,
+los eventos se deduplican y el mantenimiento retoma fallos y bloqueos caducados. Configuración
+→ Preparación para publicar muestra mensajes agotados y permite reintentarlos con permiso.
+El envío puede repetirse tras un corte de proceso; Message-ID estable permite identificarlo.
+Ver [operación y aceptación del correo](./docs/production-release.md).
 
 ## Migration imports — CSV pipeline (implemented, generic)
 
@@ -163,7 +155,7 @@ reachable from Mercado Pago's side. `MERCADO_PAGO_PUBLIC_BASE_URL` exists exactl
 it at an HTTPS tunnel (ngrok, Cloudflare Tunnel, or equivalent) while manually testing a real
 sandbox payment, and leave it unset otherwise. No specific tunnel URL is hard-coded anywhere in
 this codebase — you supply your own each time you tunnel, in `.env`, never committed. The browser
-itself keeps browsing `http://localhost:3000` as normal; only the URLs *given to Mercado Pago*
+itself keeps browsing `http://localhost:3000` as normal; only the URLs _given to Mercado Pago_
 (back_urls, notification_url — both built in `preference-core.ts`'s `createMercadoPagoPreference`
 from `config.publicBaseUrl`) need to be the public HTTPS one.
 
@@ -189,40 +181,19 @@ retry) on a transient reconciliation failure — never a silent 200 on a real fa
 
 ### Reservation expiration scheduler
 
-`expireStaleOrdersAndReservations()` (`modules/orders/order-core.ts`) already runs opportunistically
-(on checkout submission, the admin Orders list, and preference creation) but nothing schedules it
-on a fixed interval yet. `POST /api/internal/expire-stale-orders`
-(`src/app/api/internal/expire-stale-orders/route.ts`) is the stable target a real scheduler should
-call:
+GET y POST `/api/internal/expire-stale-orders` comparten el mantenimiento protegido.
+La autenticación es bearer con comparación constante de `CRON_SECRET` (Vercel) o
+`INTERNAL_TASK_SECRET` (programador externo); sin secreto configurado se deniega la llamada.
 
-- **Recommended frequency**: every 5 minutes (comfortably shorter than
-  `RESERVATION_WINDOW_MINUTES` — currently 20 — so an abandoned reservation is never held much
-  longer than promised; a 5-minute cadence also tolerates one missed/failed run without materially
-  extending that window).
-- **Endpoint**: `POST /api/internal/expire-stale-orders` on this app's own deployed base URL.
-- **Authentication**: `Authorization: Bearer <INTERNAL_TASK_SECRET>` — a constant-time comparison
-  server-side (`timingSafeEqual`); the endpoint refuses every request (401) when
-  `INTERNAL_TASK_SECRET` is unset, so there is no way to invoke it without deliberately
-  configuring the secret first.
-- **Required environment variable**: `INTERNAL_TASK_SECRET` (generate with e.g.
-  `openssl rand -base64 32`). Never `NEXT_PUBLIC_`, never logged, never displayed anywhere in the
-  admin UI — the Configuración → Integraciones → Reservas card only shows whether it's *set*
-  (`✓ Tarea automática: Configurada` / `✕ Pendiente`), never the value.
+`vercel.json` programa GET cada cinco minutos, compatible con las reservas de 20 minutos.
+La frecuencia requiere Vercel Pro/Enterprise; Hobby solo permite cron diario. Para usar un
+programador externo, quitar la entrada `crons` antes del despliegue y configurar el POST
+protegido cada cinco minutos. Verificar ejecuciones y alertas: que el endpoint esté configurado
+no prueba que un programador lo invoque.
 
-**No specific deployment platform is configured in this repository** (no `vercel.json`,
-`Dockerfile`, or other IaC/deploy config is checked in as of this phase) — do not invent one.
-Once the actual deployment target is known, prefer its native scheduler over a third-party one:
-
-- **Vercel**: a `vercel.json` `crons` entry calling the endpoint every 5 minutes (Vercel Cron
-  sends a `GET` by default — either configure it to `POST`, or add a thin `GET` handler to this
-  one route that internally calls the same logic, gated by the same secret via Vercel's own
-  `Authorization: Bearer $CRON_SECRET` convention).
-- **A container/VM deployment**: a system cron entry (or a scheduled task in whatever process
-  manager runs the app) executing a `curl -X POST -H "Authorization: Bearer $INTERNAL_TASK_SECRET"
-  https://<host>/api/internal/expire-stale-orders`.
-- **Platform-agnostic fallback**: any external scheduled-HTTP-call service (e.g. a hosted cron
-  service) configured with the same method/header/URL — the endpoint itself doesn't care who
-  calls it, only that the secret matches.
+El mantenimiento libera reservas vencidas, entrega correos pendientes y limpia contadores
+caducados y contenido de notificaciones antiguas. `/api/health` con el mismo bearer revisa
+base y fallos de entrega; el acceso público solo informa disponibilidad del proceso.
 
 Non-negotiable rules, unchanged from before this phase: payment confirmation is always re-verified
 server-side against Mercado Pago's API, never trusted from a browser redirect or client-side
@@ -255,23 +226,20 @@ concrete implementation when the shipping module is built, so the interface is e
 needing real credentials. Additional providers (Correo Argentino, OCA, Envíopack) implement the
 same interface later.
 
-## Electronic invoicing — ARCA (documented only, not implemented)
+## Electronic invoicing — ARCA en homologación; registro fiscal manual/externo
 
-**Status: not built, and deliberately not scoped into `StoreConfiguration` yet.** Fiscal data
-(CAE, points of sale, invoice types/numbering, homologation vs. production environment,
-certificates) is real regulatory surface area — it gets its own reviewed data model before any
-code is written, per the standing rule against adding vague fiscal placeholder fields early.
-When that review happens, business rules must be built behind an invoicing provider abstraction
-(fiscal authorization, PDF generation, credit/debit notes, retry handling) so they aren't
-directly coupled to ARCA's web service details, and any pre-production work must use an
-explicitly labeled homologation/sandbox implementation — never a fake/simulated authorization.
+Se implementaron datos fiscales, certificado, autenticación WSAA y WSFE de homologación.
+Las firmas usan Node WebCrypto y PKIjs. La emisión automática fiscal de producción está
+bloqueada: no usar resultados de homologación como facturas válidas.
 
-## Hosting — Vercel + Supabase (planned, not configured)
+Para el lanzamiento, emitir comprobantes con un sistema habilitado y registrarlos en cada
+venta mediante Manual/Sistema externo. El responsable contable debe completar identidad,
+CUIT, condición fiscal y punto de venta, y gestionar las notas de crédito que correspondan.
 
-Planned target: Vercel for the Next.js app, Supabase for Postgres + Storage. Not configured in
-this phase per the original scope ("do not configure production deployment unless explicitly
-requested"). When it is: `DATABASE_URL`/`DIRECT_URL` come from the Supabase project's connection
-pooler settings (see [DATABASE.md](./DATABASE.md)), all server secrets go into Vercel's
-environment variable settings (never in the repo), and preview deployments should point at a
-non-production database or a branched Supabase environment, not the same `DATABASE_URL` as
-production.
+## Hosting — Vercel + Supabase
+
+Destino confirmado: Vercel para Next.js y Supabase para Postgres/Storage. Configuración de
+compilación y cron en `vercel.json`; controles locales/CI en `.github/workflows/verify.yml`.
+No se publicó un despliegue ni se aprovisionaron cuentas en esta tarea. Separar previews y
+producción, y seguir [la guía de publicación](./docs/production-release.md) para secretos,
+migraciones, aceptación comercial, respaldos y recuperación.

@@ -9,7 +9,7 @@ test("admin fixture can log in and reach the dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
 
   await expect(page).toHaveURL(/\/admin/);
-  await expect(page.getByRole("heading", { name: "Panel" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Vista general" })).toBeVisible();
 });
 
 test("unauthenticated access to /admin never renders admin content", async ({ page }) => {
@@ -22,10 +22,8 @@ test("unauthenticated access to /admin never renders admin content", async ({ pa
   // authInterrupts (experimental) does not currently set a non-200 status
   // here even though app/unauthorized.tsx is real content-level enforcement.
   await page.goto("/admin");
-  await expect(
-    page.getByRole("heading", { name: "Necesitás iniciar sesión" }),
-  ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Panel" })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Necesitás iniciar sesión" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Vista general" })).not.toBeVisible();
 });
 
 test("storefront header proves session state: shows 'Cerrar sesión' while logged in, logging out redirects to / and restores 'Iniciar sesión', and the old session can no longer reach /admin", async ({
@@ -55,7 +53,7 @@ test("storefront header proves session state: shows 'Cerrar sesión' while logge
   // same real-403/401 signal as the "unauthenticated access" test above.
   await page.goto("/admin");
   await expect(page.getByRole("heading", { name: "Necesitás iniciar sesión" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Panel" })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Vista general" })).not.toBeVisible();
 });
 
 test("a restricted-role user gets a real 403, not just a hidden menu item", async ({ page }) => {

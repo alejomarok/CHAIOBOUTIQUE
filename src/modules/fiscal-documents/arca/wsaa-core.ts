@@ -4,12 +4,20 @@
 // WSAA — see wsaa-tra-core.ts for the pure XML build/parse half this module
 // orchestrates around.
 //
-// Uses node-forge for CMS/PKCS#7 signing (see this phase's own dependency
-// justification: a pure-JS, audited, no-native-bindings, no-local-OpenSSL-
-// CLI library — the de facto standard choice for this exact "sign a small
-// XML document as a CMS SignedData structure" need in the Node.js
-// Argentine developer ecosystem) — never hand-rolled ASN.1/crypto.
-import forge from "node-forge";
+// CMS structure is encoded by PKIjs; signatures use the native Node WebCrypto implementation.
+import { createPrivateKey, webcrypto, X509Certificate } from "node:crypto";
+import * as asn1js from "asn1js";
+import {
+  Attribute,
+  Certificate,
+  ContentInfo,
+  CryptoEngine,
+  EncapsulatedContentInfo,
+  IssuerAndSerialNumber,
+  SignedAndUnsignedAttributes,
+  SignedData,
+  SignerInfo,
+} from "pkijs";
 import { XMLParser } from "fast-xml-parser";
 
 import type { ArcaEnvironment } from "@/generated/prisma/client";
@@ -31,74 +39,84 @@ export class WsaaNetworkError extends Error {
   }
 }
 
-function decryptPrivateKey(privateKeyPem: string, passphrase: string | null): forge.pki.PrivateKey {
-  if (passphrase) {
-    const decrypted = forge.pki.decryptRsaPrivateKey(privateKeyPem, passphrase);
-    if (!decrypted) {
-      throw new ArcaCertificateInvalidError("no se pudo desencriptar la clave privada con la passphrase configurada");
-    }
-    return decrypted;
-  }
+// Uses the platform's OpenSSL/WebCrypto primitives and PKIjs for CMS encoding.
+// The vulnerable node-forge verifier is not shipped in the application runtime.
+export async function signTicketRequestCms(traXml: string): Promise<string> {
+  const { certificatePem, privateKeyPem, passphrase } = await readArcaCertificateFiles();
   try {
-    return forge.pki.privateKeyFromPem(privateKeyPem);
-  } catch (error) {
+    const x509 = new X509Certificate(certificatePem);
+    const privateKey = createPrivateKey({
+      key: privateKeyPem,
+      passphrase: passphrase ?? undefined,
+    });
+    if (!x509.checkPrivateKey(privateKey))
+      throw new Error("El certificado no corresponde a la clave privada.");
+    const der = privateKey.export({ format: "der", type: "pkcs8" });
+    const key = await webcrypto.subtle.importKey(
+      "pkcs8",
+      new Uint8Array(der),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const certificate = Certificate.fromBER(new Uint8Array(x509.raw));
+    const data = new TextEncoder().encode(traXml);
+    const digest = await webcrypto.subtle.digest("SHA-256", data);
+    const signed = new SignedData({
+      encapContentInfo: new EncapsulatedContentInfo({
+        eContentType: ContentInfo.DATA,
+        eContent: new asn1js.OctetString({ valueHex: data.buffer }),
+      }),
+      certificates: [certificate],
+      signerInfos: [
+        new SignerInfo({
+          sid: new IssuerAndSerialNumber({
+            issuer: certificate.issuer,
+            serialNumber: certificate.serialNumber,
+          }),
+          signedAttrs: new SignedAndUnsignedAttributes({
+            type: 0,
+            attributes: [
+              new Attribute({
+                type: "1.2.840.113549.1.9.3",
+                values: [new asn1js.ObjectIdentifier({ value: ContentInfo.DATA })],
+              }),
+              new Attribute({
+                type: "1.2.840.113549.1.9.4",
+                values: [new asn1js.OctetString({ valueHex: digest })],
+              }),
+              new Attribute({
+                type: "1.2.840.113549.1.9.5",
+                values: [new asn1js.UTCTime({ valueDate: new Date() })],
+              }),
+            ],
+          }),
+        }),
+      ],
+    });
+    const engine = new CryptoEngine({ name: "node", crypto: webcrypto as unknown as Crypto });
+    await signed.sign(key as unknown as CryptoKey, 0, "SHA-256", undefined, engine);
+    const cms = new ContentInfo({
+      contentType: ContentInfo.SIGNED_DATA,
+      content: signed.toSchema(true),
+    });
+    return Buffer.from(cms.toSchema().toBER(false)).toString("base64");
+  } catch {
     throw new ArcaCertificateInvalidError(
-      `no se pudo leer la clave privada (${error instanceof Error ? error.message : "formato no reconocido"})`,
+      "no se pudo firmar; verificá el certificado, la clave privada y su contraseña",
     );
   }
 }
-
-// Builds a CMS (PKCS#7) SignedData structure over the TRA XML, using the
-// configured certificate/private key — the exact document WSAA's loginCms
-// method expects as its base64-encoded `in0` parameter. Never detached
-// (WSAA needs the signed content embedded, not a separate signature) —
-// this is the one deliberate difference from a typical "sign a hash"
-// PKCS#7 use case.
-export async function signTicketRequestCms(traXml: string): Promise<string> {
-  const { certificatePem, privateKeyPem, passphrase } = await readArcaCertificateFiles();
-
-  let certificate: forge.pki.Certificate;
-  try {
-    certificate = forge.pki.certificateFromPem(certificatePem);
-  } catch (error) {
-    throw new ArcaCertificateInvalidError(error instanceof Error ? error.message : "formato de certificado no reconocido");
-  }
-  // Re-serialized to a plain PEM string (rather than passed as the forge
-  // PrivateKey object directly) — sidesteps a @types/node-forge definition
-  // mismatch between pki.decryptRsaPrivateKey's declared return type and
-  // pkcs7.addSigner's own expected `key` type; forge's own runtime code
-  // accepts either form identically.
-  const privateKeyPemNormalized = forge.pki.privateKeyToPem(decryptPrivateKey(privateKeyPem, passphrase));
-
-  const p7 = forge.pkcs7.createSignedData();
-  p7.content = forge.util.createBuffer(traXml, "utf8");
-  p7.addCertificate(certificate);
-  p7.addSigner({
-    key: privateKeyPemNormalized,
-    certificate,
-    digestAlgorithm: forge.pki.oids.sha256,
-    authenticatedAttributes: [
-      { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
-      { type: forge.pki.oids.messageDigest },
-      // node-forge's own runtime accepts a Date here and formats it as
-      // UTCTime internally — @types/node-forge's signature is
-      // overly-strict (string-only), hence the cast.
-      { type: forge.pki.oids.signingTime, value: new Date() as unknown as string },
-    ],
-  });
-  p7.sign();
-
-  const der = forge.asn1.toDer(p7.toAsn1()).getBytes();
-  return forge.util.encode64(der);
-}
-
 // Raw SOAP 1.1 call to WSAA's loginCms method — hand-built envelope rather
 // than a WSDL-driven dynamic client (see this phase's own "deterministic,
 // small, fixed set of hand-built SOAP envelopes" dependency justification:
 // WSAA/WSFEv1 between them expose only a handful of methods this
 // integration ever calls, so a general-purpose `soap` package's WSDL
 // parsing overhead buys nothing here).
-export async function callWsaaLoginCms(cmsBase64: string, wsaaUrl: string): Promise<LoginTicketResponse> {
+export async function callWsaaLoginCms(
+  cmsBase64: string,
+  wsaaUrl: string,
+): Promise<LoginTicketResponse> {
   const envelope =
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsaa="http://wsaa.view.sua.dvadac.desein.afip.gov">` +
@@ -129,20 +147,28 @@ export async function callWsaaLoginCms(cmsBase64: string, wsaaUrl: string): Prom
     throw new WsaaNetworkError(error instanceof Error ? error.message : "error de red desconocido");
   }
 
-  const parser = new XMLParser({ ignoreAttributes: true, parseTagValue: false, removeNSPrefix: true });
+  const parser = new XMLParser({
+    ignoreAttributes: true,
+    parseTagValue: false,
+    removeNSPrefix: true,
+  });
   let parsedEnvelope: unknown;
   try {
     parsedEnvelope = parser.parse(responseText);
   } catch (error) {
-    throw new WsaaResponseParseError(error instanceof Error ? error.message : "sobre SOAP inválido");
+    throw new WsaaResponseParseError(
+      error instanceof Error ? error.message : "sobre SOAP inválido",
+    );
   }
 
-  const body = (parsedEnvelope as Record<string, unknown>)?.Envelope as Record<string, unknown> | undefined;
+  const body = (parsedEnvelope as Record<string, unknown>)?.Envelope as
+    Record<string, unknown> | undefined;
   const bodyContent = body?.Body as Record<string, unknown> | undefined;
 
   const fault = bodyContent?.Fault as Record<string, unknown> | undefined;
   if (fault) {
-    const faultString = typeof fault.faultstring === "string" ? fault.faultstring : "error desconocido";
+    const faultString =
+      typeof fault.faultstring === "string" ? fault.faultstring : "error desconocido";
     throw new WsaaFaultError(faultString);
   }
 
