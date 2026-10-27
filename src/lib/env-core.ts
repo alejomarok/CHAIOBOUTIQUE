@@ -142,22 +142,26 @@ const envSchema = z.object({
   // product-images bucket.
   E2E_TEST_MODE: z.preprocess((v) => v === "true", z.boolean()).default(false),
 
-  // Email (dev: Mailpit; prod provider deferred, see INTEGRATIONS.md).
-  // EMAIL_PROVIDER is forward-declared for a future "resend" value — only
-  // "smtp" is implemented this phase (SmtpEmailProvider). SMTP_SECURE/USER/
-  // PASSWORD are optional: Mailpit needs none of them (no TLS, no auth); a
-  // real relay would set all three.
-  EMAIL_PROVIDER: z.enum(["smtp"]).default("smtp"),
+  // Local SMTP uses Mailpit. Production may use authenticated SMTP or Resend.
+  EMAIL_PROVIDER: z.enum(["smtp", "resend"]).default("smtp"),
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().positive(),
   SMTP_SECURE: z.preprocess((v) => v === "true", z.boolean()).default(false),
   SMTP_USER: optional(z.string().min(1)),
   SMTP_PASSWORD: optional(z.string().min(1)),
   EMAIL_FROM: z.email(),
+  EMAIL_REPLY_TO: optional(z.email()),
+  RESEND_TEST_RECIPIENT: optional(z.email()),
   RESEND_API_KEY: optional(z.string().min(1)),
 });
 
 const productionSchema = envSchema.superRefine((value, ctx) => {
+  if (value.EMAIL_PROVIDER === "resend" && !value.RESEND_API_KEY)
+    ctx.addIssue({
+      code: "custom",
+      path: ["RESEND_API_KEY"],
+      message: "Resend requires an API key",
+    });
   if (value.NODE_ENV !== "production") return;
   if (value.E2E_TEST_MODE)
     ctx.addIssue({
@@ -179,6 +183,15 @@ const productionSchema = envSchema.superRefine((value, ctx) => {
     });
   for (const field of ["BETTER_AUTH_URL", "NEXT_PUBLIC_APP_URL"] as const) {
     const url = new URL(value[field]);
+    if (
+      process.env.VERCEL_ENV === "production" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: [field],
+        message: "Vercel production must use the public storefront domain, never localhost",
+      });
     if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
       ctx.addIssue({
         code: "custom",
@@ -187,6 +200,12 @@ const productionSchema = envSchema.superRefine((value, ctx) => {
       });
     }
   }
+  if (new URL(value.BETTER_AUTH_URL).origin !== new URL(value.NEXT_PUBLIC_APP_URL).origin)
+    ctx.addIssue({
+      code: "custom",
+      path: ["BETTER_AUTH_URL"],
+      message: "Authentication and storefront must use the same production origin",
+    });
 });
 const parsed = productionSchema.safeParse(process.env);
 

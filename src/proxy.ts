@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 
 import { isSafeInternalPath } from "@/lib/safe-redirect";
 import { contentSecurityPolicy } from "@/lib/security-headers";
+import { canonicalStorefrontUrl } from "@/lib/canonical-storefront";
 
 // Coarse gate only: an optimistic cookie-presence check, not a permission
 // check. The real authorization (requireUser/requirePermission, which can
@@ -11,6 +12,12 @@ import { contentSecurityPolicy } from "@/lib/security-headers";
 // next/navigation's unauthorized()/forbidden() — see modules/auth. This is
 // deliberate: proxy runs on every matched request, so it should stay cheap.
 export function proxy(request: NextRequest) {
+  const canonical = canonicalStorefrontUrl(
+    request.nextUrl,
+    process.env.VERCEL_ENV,
+    process.env.BETTER_AUTH_URL,
+  );
+  if (canonical) return NextResponse.redirect(canonical);
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const csp = contentSecurityPolicy(
     nonce,

@@ -48,6 +48,10 @@ export function LoginForm() {
       });
 
       if (error) {
+        if (error.status === 403 && error.code === "INVALID_ORIGIN") {
+          toast.error("Ingresá desde el sitio oficial de ChaioBoutique para iniciar sesión.");
+          return;
+        }
         // Generic on purpose: never confirm/deny whether the email exists.
         toast.error("No pudimos iniciar sesión. Revisá tu email y contraseña.");
         return;

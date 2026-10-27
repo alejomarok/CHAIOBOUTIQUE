@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import nodemailer from "nodemailer";
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db-core";
 import { env } from "@/lib/env-core";
 import { openSecret, sealSecret } from "@/lib/secret-box";
+import { getEmailProvider } from "./delivery-core";
 import {
   ORDER_STATUS_LABELS_ES,
   ORDER_PAYMENT_STATUS_LABELS_ES,
@@ -108,26 +108,7 @@ export async function enqueueOrderEmails(
 
 async function sendMail(input: MailPayload & { to: string; messageId: string }) {
   if (testSender) return testSender(input);
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_SECURE,
-    requireTLS:
-      env.NODE_ENV === "production" && !["localhost", "127.0.0.1"].includes(env.SMTP_HOST),
-    connectionTimeout: 8000,
-    socketTimeout: 10_000,
-    auth:
-      env.SMTP_USER && env.SMTP_PASSWORD
-        ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD }
-        : undefined,
-    disableFileAccess: true,
-    disableUrlAccess: true,
-  });
-  try {
-    await transport.sendMail({ from: env.EMAIL_FROM, ...input });
-  } finally {
-    transport.close();
-  }
+  await getEmailProvider().send(input);
 }
 
 export async function processEmailOutbox(limit = 10) {

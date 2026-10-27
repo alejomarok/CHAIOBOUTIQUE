@@ -32,4 +32,16 @@ describe("production environment rejects unsafe operation", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://store.example.com");
     await expect(import("@/lib/env-core")).rejects.toThrow("Invalid environment variables");
   });
+  it("rejects localhost on Vercel production", async () => {
+    production();
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
+    await expect(import("@/lib/env-core")).rejects.toThrow("Invalid environment variables");
+  });
+  it("rejects mismatched authentication and storefront domains", async () => {
+    production();
+    vi.stubEnv("BETTER_AUTH_URL", "https://other.example.com");
+    await expect(import("@/lib/env-core")).rejects.toThrow("Invalid environment variables");
+  });
 });

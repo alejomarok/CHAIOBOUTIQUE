@@ -1,17 +1,7 @@
 import "server-only";
 
 import { EmailDeliveryError } from "./provider";
-import type { EmailProvider } from "./provider";
-import { SmtpEmailProvider } from "./smtp-provider";
-
-let provider: EmailProvider | null = null;
-
-function getEmailProvider(): EmailProvider {
-  if (!provider) {
-    provider = new SmtpEmailProvider();
-  }
-  return provider;
-}
+import { getEmailProvider } from "./delivery-core";
 
 export { EmailDeliveryError } from "./provider";
 export type { EmailProvider, SendEmailInput } from "./provider";

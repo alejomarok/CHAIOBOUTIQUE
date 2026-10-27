@@ -1,14 +1,12 @@
 export interface SendEmailInput {
   to: string;
   subject: string;
-  html: string;
+  html?: string;
   text: string;
+  messageId?: string;
 }
 
-// Provider abstraction so domain code (password reset, future order/shipment
-// notifications) never talks to a specific vendor directly. Only the SMTP
-// (Mailpit) implementation is wired up this phase — Resend is documented in
-// INTEGRATIONS.md as the planned production provider, not yet implemented.
+// Shared by authentication messages and the persistent order-email outbox.
 export interface EmailProvider {
   send(input: SendEmailInput): Promise<void>;
 }

@@ -1,8 +1,6 @@
-import "server-only";
-
 import nodemailer from "nodemailer";
 
-import { env } from "@/lib/env";
+import { env } from "@/lib/env-core";
 
 import type { EmailProvider, SendEmailInput } from "./provider";
 
@@ -34,6 +32,8 @@ export class SmtpEmailProvider implements EmailProvider {
       subject: input.subject,
       html: input.html,
       text: input.text,
+      messageId: input.messageId,
+      replyTo: env.EMAIL_REPLY_TO,
     });
   }
 }

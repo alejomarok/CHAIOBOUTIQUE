@@ -59,11 +59,15 @@ server-side processing (thumbnails, format normalization) becomes a real require
 `SUPABASE_PRODUCT_IMAGES_BUCKET` (default `product-images`) is a public bucket — product photos
 are customer-facing by nature; nothing sensitive is ever stored in it.
 
-## Email — SMTP real y cola persistente
+## Email — SMTP o Resend y cola persistente
 
-`SmtpEmailProvider` gestiona recuperación de contraseña y verificación. En desarrollo se
-usa Mailpit; en producción, cualquier relay SMTP real con TLS y dominio remitente verificado.
-No es necesario implementar una API de Resend para publicar.
+Recuperación, verificación y la cola de pedidos comparten el proveedor seleccionado con
+`EMAIL_PROVIDER=smtp|resend`. SMTP usa Mailpit localmente o un relay real con TLS.
+Resend usa `RESEND_API_KEY` y un `EMAIL_FROM` de un dominio verificado; no admite Gmail
+como remitente. `EMAIL_REPLY_TO` permite indicar el correo de atención.
+El modo temporal `RESEND_TEST_RECIPIENT` restringe los envíos al dueño de la cuenta de Resend:
+no habilita correos a clientes y debe retirarse al verificar un dominio propio.
+La salud protegida admite `?email=1` para consultar configuración sin exponer claves.
 
 `modules/email/outbox-core.ts` registra confirmaciones de pedido/pago, cambios de entrega,
 ajustes financieros y solicitudes en la misma transacción de negocio. El texto se cifra,

@@ -62,7 +62,15 @@ export async function getProductionReadiness() {
     {
       label: "Correo con proveedor externo",
       ready:
-        !["localhost", "127.0.0.1"].includes(env.SMTP_HOST) && !env.EMAIL_FROM.endsWith(".local"),
+        env.EMAIL_PROVIDER === "resend"
+          ? Boolean(
+              env.RESEND_API_KEY &&
+              !env.RESEND_TEST_RECIPIENT &&
+              !env.EMAIL_FROM.endsWith("@resend.dev") &&
+              !env.EMAIL_FROM.endsWith(".local"),
+            )
+          : !["localhost", "127.0.0.1"].includes(env.SMTP_HOST) &&
+            !env.EMAIL_FROM.endsWith(".local"),
     },
     {
       label: "Archivos de productos en almacenamiento persistente",
