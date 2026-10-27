@@ -185,11 +185,7 @@ GET y POST `/api/internal/expire-stale-orders` comparten el mantenimiento proteg
 La autenticación es bearer con comparación constante de `CRON_SECRET` (Vercel) o
 `INTERNAL_TASK_SECRET` (programador externo); sin secreto configurado se deniega la llamada.
 
-`vercel.json` programa GET cada cinco minutos, compatible con las reservas de 20 minutos.
-La frecuencia requiere Vercel Pro/Enterprise; Hobby solo permite cron diario. Para usar un
-programador externo, quitar la entrada `crons` antes del despliegue y configurar el POST
-protegido cada cinco minutos. Verificar ejecuciones y alertas: que el endpoint esté configurado
-no prueba que un programador lo invoque.
+Vercel Hobby es el plan confirmado. `vercel.json` no programa una frecuencia incompatible. La tarea de cinco minutos se prepara con `scripts/setup-supabase-maintenance.ts` en Supabase Cron, usa `pg_net` para llamar al POST protegido y conserva el bearer en Vault. Queda desactivada por defecto; activarla solo después de verificar la versión publicada. Revisar tanto los registros del job como la respuesta HTTP. Ver [la guía operativa](./docs/production-release.md).
 
 El mantenimiento libera reservas vencidas, entrega correos pendientes y limpia contadores
 caducados y contenido de notificaciones antiguas. `/api/health` con el mismo bearer revisa

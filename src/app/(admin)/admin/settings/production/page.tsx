@@ -46,9 +46,9 @@ export default async function ProductionPage() {
           es de homologación y no emite comprobantes fiscales de producción.
         </p>
         <p className="mt-3">
-          Vercel debe ejecutar el mantenimiento cada cinco minutos. El cron incluido requiere un
-          plan con esa frecuencia, o un programador externo que llame al mismo endpoint protegido.
-          Verificá sus ejecuciones y alertas en el alojamiento.
+          El mantenimiento debe ejecutarse cada cinco minutos. Con Vercel Hobby se programa desde
+          Supabase y llama a la tarea protegida de la tienda. Verificá que esté activo y revisá sus
+          ejecuciones y alertas en el alojamiento.
         </p>
       </div>
     </div>

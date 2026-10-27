@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { defineConfig, env } from "prisma/config";
+import { databaseCliUrl } from "./scripts/database-cli-url";
 
 // Prisma 7: this file controls what the Prisma CLI (migrate, db push, studio,
 // db seed) connects to. It intentionally uses DIRECT_URL, not DATABASE_URL —
@@ -14,6 +15,6 @@ export default defineConfig({
     seed: "tsx prisma/seed.ts",
   },
   datasource: {
-    url: env("DIRECT_URL"),
+    url: databaseCliUrl(env("DIRECT_URL")),
   },
 });

@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "crons": [{ "path": "/api/internal/expire-stale-orders", "schedule": "*/5 * * * *" }]
+  "buildCommand": "npm run build"
 }

@@ -23,9 +23,11 @@ La integración Git de Vercel puede generar previews. `.github/workflows/verify.
 
 ## Reservas, correos y tareas programadas
 
-`vercel.json` define GET `/api/internal/expire-stale-orders` cada cinco minutos. Vercel adjunta `Authorization: Bearer CRON_SECRET`. El endpoint también acepta POST con `INTERNAL_TASK_SECRET` para un programador externo. No admite llamadas sin secreto. Libera reservas vencidas, procesa correos con reintentos y limpia contadores caducados y el contenido de mensajes entregados hace más de 30 días.
+El proyecto usa Vercel Hobby. `vercel.json` no incluye un cron cada cinco minutos porque ese plan rechaza el despliegue antes de compilar. El mantenimiento se programa en Supabase con `pg_cron` y `pg_net`, y llama por POST a `/api/internal/expire-stale-orders`. El endpoint acepta `CRON_SECRET` o `INTERNAL_TASK_SECRET` como bearer; no admite llamadas sin secreto.
 
-**La frecuencia de cinco minutos requiere un plan Vercel compatible (Pro/Enterprise)**. Hobby solo admite cron diario: si se elige Hobby, quitar `crons` de `vercel.json` antes del despliegue y conectar un programador externo cada cinco minutos al mismo endpoint protegido. Una reserva dura 20 minutos; una ejecución diaria no sirve. No se contrató ningún plan ni programador. Verificar ejecuciones reales y alertar si fallan o dejan de producirse.
+Preparación: `npx tsx scripts/setup-supabase-maintenance.ts --app-url https://DOMINIO` toma el secreto del entorno y crea el job desactivado. No pasar claves por argumentos. Después de comprobar el despliegue, repetir con `--activate`. El secreto y la URL se guardan en Supabase Vault; el comando visible del job solo contiene sus nombres. Las extensiones y Vault requieren permisos del propietario del proyecto. Confirmar el destino antes de ejecutar.
+
+Verificar cada cinco minutos que se libera stock reservado y se entregan correos; revisar `cron.job_run_details` y las respuestas de `net._http_response`. La ejecución SQL exitosa por sí sola no prueba que la respuesta HTTP sea 200. Una reserva dura 20 minutos; un cron diario no sirve. No es necesario cambiar a Vercel Pro para este esquema. Si se cambia de programador, desactivar primero el anterior para evitar trabajos duplicados.
 
 La confirmación del pedido, del pago, de entrega, del ajuste financiero y de solicitudes queda en una cola persistente. El texto que contiene enlaces privados se cifra; los eventos son idempotentes. `after()` intenta entregar algunos mensajes al finalizar la respuesta y el mantenimiento retoma lo pendiente. Si un proceso muere, otro recupera el trabajo al vencer su bloqueo. El envío SMTP es al menos una vez: un corte después de aceptar el correo puede ocasionar un duplicado; se conserva un Message-ID estable. Los mensajes que agotan reintentos aparecen en Configuración → Preparación para publicar; corregir el proveedor y usar “Reintentar correos fallidos”.
 
@@ -69,3 +71,9 @@ Retroceso: conservar el despliegue anterior y una copia previa. En Vercel, prepa
 - [Notificaciones de Checkout Pro](https://www.mercadopago.com.ar/developers/en/docs/checkout-pro-preferences/payment-notifications).
 - [Respaldos de Supabase](https://supabase.com/docs/guides/platform/backups).
 - [Ley 24.240](https://www.argentina.gob.ar/normativa/nacional/638/actualizacion), [Disposición 954/2025](https://www.argentina.gob.ar/normativa/nacional/disposici%C3%B3n-954-2025-417152/texto) y [derechos sobre datos personales](https://www.argentina.gob.ar/aaip/datospersonales/derechos).
+
+### Conexión TLS de Supabase
+
+La aplicación y Prisma confían en el certificado público Supabase Root 2021 CA con validación de cadena y hostname. `sslmode=require` del URL no debe descartar ese certificado en node-postgres. La CA pública está versionada en `src/lib/supabase-ca.ts`; no contiene claves privadas. No usar `rejectUnauthorized=false` ni `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+
+La carga técnica acotada puede inspeccionarse con `npx tsx scripts/repair-production-bootstrap.ts`; solo `--apply` agrega permisos y asignaciones predeterminadas, la cuenta técnica sin contraseña y Embalse. No ejecuta el seed general, no carga productos/clientes/talles ni cambia contraseñas. Requiere autorización del responsable para el destino de producción.
