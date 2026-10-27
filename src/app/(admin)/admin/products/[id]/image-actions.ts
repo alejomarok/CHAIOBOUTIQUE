@@ -37,6 +37,15 @@ async function withDevDiagnostics<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+async function revalidateProductImageViews(productId: string) {
+  revalidatePath(`/admin/products/${productId}`);
+  revalidatePath(`/admin/products/${productId}/edit`);
+  revalidatePath("/");
+  revalidatePath("/catalog");
+  const slug = await getProductSlugForRevalidation(productId);
+  if (slug) revalidatePath(`/product/${slug}`);
+}
+
 // Step 1 of 2 — see modules/products/product-images.ts's doc comment on
 // prepareProductImageUpload for the full direct-to-storage upload design.
 // Returns a signed upload target; never touches the file's bytes (the
@@ -56,10 +65,7 @@ export async function finalizeProductImageUploadAction(input: FinalizeProductIma
 
   const image = await withDevDiagnostics(() => finalizeProductImageUpload(input, actor.id));
 
-  revalidatePath(`/admin/products/${input.productId}`);
-  revalidatePath("/catalog");
-  const slug = await getProductSlugForRevalidation(input.productId);
-  if (slug) revalidatePath(`/product/${slug}`);
+  await revalidateProductImageViews(input.productId);
 
   return image;
 }
@@ -67,19 +73,13 @@ export async function finalizeProductImageUploadAction(input: FinalizeProductIma
 export async function deleteProductImageAction(input: { imageId: string; productId: string }) {
   const actor = await requirePermission("product_images.manage");
   await deleteProductImage(input.imageId, actor.id);
-  revalidatePath(`/admin/products/${input.productId}`);
-  revalidatePath("/catalog");
-  const slug = await getProductSlugForRevalidation(input.productId);
-  if (slug) revalidatePath(`/product/${slug}`);
+  await revalidateProductImageViews(input.productId);
 }
 
 export async function setPrimaryImageAction(input: { imageId: string; productId: string }) {
   const actor = await requirePermission("product_images.manage");
   await setPrimaryImage(input.imageId, actor.id);
-  revalidatePath(`/admin/products/${input.productId}`);
-  revalidatePath("/catalog");
-  const slug = await getProductSlugForRevalidation(input.productId);
-  if (slug) revalidatePath(`/product/${slug}`);
+  await revalidateProductImageViews(input.productId);
 }
 
 export async function reorderProductImageAction(input: {
@@ -89,5 +89,5 @@ export async function reorderProductImageAction(input: {
 }) {
   const actor = await requirePermission("product_images.manage");
   await reorderProductImage(input.imageId, input.direction, actor.id);
-  revalidatePath(`/admin/products/${input.productId}`);
+  await revalidateProductImageViews(input.productId);
 }

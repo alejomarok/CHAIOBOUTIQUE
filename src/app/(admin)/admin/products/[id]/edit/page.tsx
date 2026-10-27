@@ -1,14 +1,16 @@
 import { notFound } from "next/navigation";
 
 import { minorUnitsToDisplay } from "@/lib/money";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/modules/auth";
 import { listSizeGroups } from "@/modules/attributes/service";
 import { listBrands } from "@/modules/brands/service";
 import { listCategories } from "@/modules/categories/service";
 import { getProductById } from "@/modules/products/service";
+import { getProductImagePublicUrl } from "@/modules/products/product-images";
 
 import { ProductForm } from "../../product-form";
+import { ProductImagesManager } from "../product-images-manager";
 
 export const metadata = { title: "Editar producto" };
 
@@ -38,6 +40,32 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         <h1 className="font-heading text-2xl font-semibold">Editar producto</h1>
         <p className="text-muted-foreground text-sm">{product.name}</p>
       </div>
+      <Card id="imagenes">
+        <CardHeader>
+          <CardTitle>Fotos del producto</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Agregá fotos, elegí la principal, cambiá el orden o eliminá las que ya no quieras. Los
+            cambios en las fotos se guardan al momento.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {user.permissions.has("product_images.manage") ? (
+            <ProductImagesManager
+              productId={product.id}
+              images={product.images.map((image) => ({
+                id: image.id,
+                url: getProductImagePublicUrl(image),
+                altText: image.altText,
+                isPrimary: image.isPrimary,
+              }))}
+            />
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No tenés permiso para gestionar imágenes.
+            </p>
+          )}
+        </CardContent>
+      </Card>
       <Card>
         <CardContent className="pt-6">
           <ProductForm
