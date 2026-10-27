@@ -4,17 +4,11 @@ import { SlidersHorizontal } from "lucide-react";
 
 import { CatalogFilters } from "@/components/catalog/catalog-filters";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 interface CatalogFiltersSheetProps {
   categories: { id: string; name: string }[];
-  defaultValues: { q?: string; category?: string; sort?: string };
+  defaultValues: { q?: string; category?: string; sort?: string; collection?: string };
 }
 
 // Mobile-only entry point for the same CatalogFilters form used in the

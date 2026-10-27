@@ -14,7 +14,13 @@ const PAGE_SIZE = 24;
 const MAX_PAGE = Math.floor(2_147_483_647 / PAGE_SIZE) + 1;
 
 interface CatalogPageProps {
-  searchParams: Promise<{ q?: string; category?: string; sort?: string; page?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    category?: string;
+    sort?: string;
+    page?: string;
+    collection?: string;
+  }>;
 }
 
 function isValidSort(value: string | undefined): value is "newest" | "price_asc" | "price_desc" {
@@ -29,13 +35,20 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
       ? requestedPage
       : 1;
   const sort = isValidSort(params.sort) ? params.sort : "newest";
-  const defaultValues = { q: params.q, category: params.category, sort };
+  const isNewArrivals = params.collection === "new";
+  const defaultValues = {
+    q: params.q,
+    category: params.category,
+    sort,
+    collection: isNewArrivals ? "new" : undefined,
+  };
 
   const [productResults, categories] = await Promise.all([
     listPublicProducts({
       search: params.q || undefined,
       categoryId: params.category || undefined,
       sort,
+      newArrivalsOnly: isNewArrivals,
       take: PAGE_SIZE + 1,
       skip: (page - 1) * PAGE_SIZE,
     }),
@@ -47,6 +60,7 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
 
   function pageHref(targetPage: number) {
     const query = new URLSearchParams();
+    if (isNewArrivals) query.set("collection", "new");
     if (params.q) query.set("q", params.q);
     if (params.category) query.set("category", params.category);
     query.set("sort", sort);
@@ -64,11 +78,41 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
           CHAIOBOUTIQUE · Moda femenina
         </p>
         <h1 className="font-heading text-4xl font-normal tracking-tight sm:text-5xl">
-          {activeCategoryName ?? "La colección"}
+          {isNewArrivals
+            ? activeCategoryName
+              ? `Novedades en ${activeCategoryName}`
+              : "Novedades"
+            : (activeCategoryName ?? "La colección")}
         </h1>
         <p className="text-muted-foreground max-w-lg text-sm leading-relaxed">
-          Encontrá esas prendas que se sienten tan bien como se ven.
+          {isNewArrivals
+            ? "Recién llegados: descubrí las prendas que sumamos en los últimos 30 días."
+            : "Encontrá esas prendas que se sienten tan bien como se ven."}
         </p>
+        <nav aria-label="Selección de la colección" className="mt-2 flex gap-6 text-sm">
+          <Link
+            href="/catalog"
+            aria-current={!isNewArrivals ? "page" : undefined}
+            className={
+              !isNewArrivals
+                ? "border-b border-current py-2 font-medium"
+                : "text-muted-foreground hover:text-foreground py-2"
+            }
+          >
+            Toda la colección
+          </Link>
+          <Link
+            href="/catalog?collection=new"
+            aria-current={isNewArrivals ? "page" : undefined}
+            className={
+              isNewArrivals
+                ? "border-b border-current py-2 font-medium"
+                : "text-muted-foreground hover:text-foreground py-2"
+            }
+          >
+            Novedades
+          </Link>
+        </nav>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-muted-foreground text-sm">
             {products.length === 0
@@ -89,11 +133,17 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
           {products.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-24 text-center">
               <p className="text-muted-foreground text-lg">
-                No encontramos productos con esos filtros.
+                {isNewArrivals && !params.q && !params.category && page === 1
+                  ? "Estamos preparando los próximos ingresos. Mientras tanto, explorá toda la colección."
+                  : "No encontramos productos con esos filtros."}
               </p>
               <Button asChild variant="outline">
                 <Link href={page > 1 ? pageHref(page - 1) : "/catalog"}>
-                  {page > 1 ? "Volver a la página anterior" : "Limpiar filtros"}
+                  {page > 1
+                    ? "Volver a la página anterior"
+                    : isNewArrivals
+                      ? "Ver toda la colección"
+                      : "Limpiar filtros"}
                 </Link>
               </Button>
             </div>

@@ -178,6 +178,40 @@ describe("public catalog — never exposes internal fields (real DB)", () => {
     expect(await getPublicProductBySlug(product.slug)).not.toBeNull();
   });
 
+  it("keeps older products in the collection while limiting new arrivals to the last 30 days", async () => {
+    const { actor, category } = await setup();
+    const ids: string[] = [];
+    for (const [index, daysOld] of [0, 40].entries()) {
+      const product = await createProduct(
+        {
+          name: `Ingreso ${index} ${Date.now()}`,
+          categoryId: category.id,
+          defaultPriceAmount: 1500n,
+        },
+        actor.id,
+      );
+      cleanup.push(() => prisma.product.delete({ where: { id: product.id } }));
+      const variants = await createVariants(
+        product.id,
+        [{ sizeOptionId: null, colorId: null, sku: `NEW-${index}-${Date.now()}` }],
+        actor.id,
+      );
+      cleanup.push(() =>
+        prisma.productVariant.deleteMany({ where: { id: { in: variants.map((v) => v.id) } } }),
+      );
+      await setProductStatus(product.id, "ACTIVE", actor.id);
+      await prisma.product.update({
+        where: { id: product.id },
+        data: { createdAt: new Date(Date.now() - daysOld * 86_400_000) },
+      });
+      ids.push(product.id);
+    }
+    const collection = await listPublicProducts({ categoryId: category.id });
+    const arrivals = await listPublicProducts({ categoryId: category.id, newArrivalsOnly: true });
+    expect(collection.map((p) => p.id)).toEqual(expect.arrayContaining(ids));
+    expect(arrivals.map((p) => p.id)).toEqual([ids[0]]);
+  });
+
   it("an INACTIVE product does not appear in listPublicProducts or getPublicProductBySlug", async () => {
     const { actor, category } = await setup();
 

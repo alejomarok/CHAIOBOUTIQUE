@@ -1,5 +1,4 @@
 import { Search } from "lucide-react";
-import Link from "next/link";
 
 import { AuthActions } from "@/components/layout/auth-actions";
 import { CartIconLink } from "@/components/layout/cart-icon-link";
@@ -13,7 +12,7 @@ export async function PublicHeader() {
   const categories = await listStorefrontNavCategories();
   const navLinks: NavLinkItem[] = [
     { href: "/", label: "Inicio" },
-    { href: "/catalog?sort=newest", label: "Novedades" },
+    { href: "/catalog?collection=new", label: "Novedades" },
     ...categories
       .slice(0, 4)
       .map((category) => ({ href: `/catalog?category=${category.id}`, label: category.name })),
@@ -23,13 +22,7 @@ export async function PublicHeader() {
   return (
     <>
       <div className="flex min-h-11 flex-wrap items-center justify-center gap-x-8 bg-[#34483d] px-4 text-center text-sm text-[#fafbf7]">
-        <span className="hidden sm:inline">Un estilo propio. Una forma de ser vos.</span>
-        <Link
-          href="/arrepentimiento"
-          className="inline-flex min-h-11 items-center underline underline-offset-4"
-        >
-          Botón de arrepentimiento
-        </Link>
+        <span>Un estilo propio. Una forma de ser vos.</span>
       </div>
       <header className="store-header bg-background sticky top-0 z-40">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-10 lg:px-16">

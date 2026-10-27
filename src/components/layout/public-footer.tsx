@@ -17,7 +17,7 @@ import { getStoreConfiguration } from "@/modules/store-settings/service";
 
 const NAV_LINKS = [
   { href: "/catalog", label: "Ver colección" },
-  { href: "/catalog?sort=newest", label: "Novedades" },
+  { href: "/catalog?collection=new", label: "Novedades" },
   { href: "/#esencia", label: "Nuestra esencia" },
   { href: "/#contacto", label: "Contacto" },
 ];

@@ -6,7 +6,7 @@ import { ProductCard } from "@/components/catalog/product-card";
 import { listPublicProducts } from "@/modules/products/public-queries";
 
 export async function FeaturedProducts() {
-  const products = await listPublicProducts({ take: 4, sort: "newest" });
+  const products = await listPublicProducts({ take: 4, sort: "newest", newArrivalsOnly: true });
   return (
     <section
       id="novedades"
@@ -29,7 +29,7 @@ export async function FeaturedProducts() {
           </div>
           <Link
             data-reveal
-            href="/catalog?sort=newest"
+            href="/catalog?collection=new"
             className="editorial-link inline-flex min-h-11 items-center gap-4 text-sm font-medium"
           >
             Ver novedades <ArrowUpRight className="size-4" aria-hidden="true" />

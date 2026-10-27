@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 
 interface CatalogFiltersProps {
   categories: { id: string; name: string }[];
-  defaultValues: { q?: string; category?: string; sort?: string };
+  defaultValues: { q?: string; category?: string; sort?: string; collection?: string };
 }
 
 const hasActiveFilters = (defaultValues: CatalogFiltersProps["defaultValues"]) =>
@@ -19,6 +19,7 @@ const hasActiveFilters = (defaultValues: CatalogFiltersProps["defaultValues"]) =
 export function CatalogFilters({ categories, defaultValues }: CatalogFiltersProps) {
   return (
     <form method="GET" action="/catalog" className="flex flex-col gap-5">
+      {defaultValues.collection === "new" && <input type="hidden" name="collection" value="new" />}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="q">Buscar</Label>
         <Input id="q" name="q" defaultValue={defaultValues.q} placeholder="Nombre del producto" />
@@ -60,7 +61,9 @@ export function CatalogFilters({ categories, defaultValues }: CatalogFiltersProp
       </Button>
       {hasActiveFilters(defaultValues) && (
         <Button asChild type="button" variant="ghost" size="sm">
-          <Link href="/catalog">Limpiar filtros</Link>
+          <Link href={defaultValues.collection === "new" ? "/catalog?collection=new" : "/catalog"}>
+            Limpiar filtros
+          </Link>
         </Button>
       )}
     </form>

@@ -24,7 +24,7 @@ export function Hero() {
             Moda femenina para moverte con libertad. Prendas que se sienten como vos.
           </p>
           <Link
-            href="/catalog?sort=newest"
+            href="/catalog"
             className="campaign-button hero-enter mt-8 inline-flex min-h-13 items-center gap-7 bg-white px-6 text-sm font-medium text-[#242b28] [animation-delay:180ms] hover:bg-[#eceee8]"
           >
             Descubrí la colección <ArrowUpRight className="size-4" aria-hidden="true" />

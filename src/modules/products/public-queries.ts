@@ -30,6 +30,7 @@ export interface ListPublicProductsFilters {
   brandId?: string;
   sizeOptionId?: string;
   colorId?: string;
+  newArrivalsOnly?: boolean;
   sort?: "newest" | "price_asc" | "price_desc";
   take?: number;
   skip?: number;
@@ -55,12 +56,21 @@ export async function listPublicProducts(filters: ListPublicProductsFilters = {}
   const products = await prisma.product.findMany({
     where: {
       status: "ACTIVE",
+      createdAt: filters.newArrivalsOnly
+        ? { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+        : undefined,
       categoryId: filters.categoryId ?? { not: null },
       brandId: filters.brandId,
       name: filters.search ? { contains: filters.search, mode: "insensitive" } : undefined,
       variants:
         filters.sizeOptionId || filters.colorId
-          ? { some: { isActive: true, sizeOptionId: filters.sizeOptionId, colorId: filters.colorId } }
+          ? {
+              some: {
+                isActive: true,
+                sizeOptionId: filters.sizeOptionId,
+                colorId: filters.colorId,
+              },
+            }
           : undefined,
     },
     // Explicit select, not a bare `include` — this file's own header
@@ -195,7 +205,14 @@ export async function getPublicProductBySlug(slug: string): Promise<PublicProduc
       },
       images: {
         orderBy: { displayOrder: "asc" },
-        select: { bucket: true, path: true, altText: true, width: true, height: true, isPrimary: true },
+        select: {
+          bucket: true,
+          path: true,
+          altText: true,
+          width: true,
+          height: true,
+          isPrimary: true,
+        },
       },
       category: { select: { name: true } },
       brand: { select: { name: true } },
