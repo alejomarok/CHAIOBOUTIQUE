@@ -1,4 +1,5 @@
 import { env } from "@/lib/env-core";
+import { isEmailDeliveryAvailable } from "./availability-core";
 
 export async function getEmailReadiness() {
   if (env.EMAIL_PROVIDER === "resend" && env.RESEND_TEST_RECIPIENT)
@@ -6,6 +7,7 @@ export async function getEmailReadiness() {
       provider: "resend",
       deliveryMode: "owner_only",
       keyConfigured: Boolean(env.RESEND_API_KEY),
+      providerAuthenticationAvailable: await isEmailDeliveryAvailable(),
       productionCustomerEmailReady: false,
     };
   const senderDomain = env.EMAIL_FROM.split("@")[1].toLowerCase();
