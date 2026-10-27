@@ -2,7 +2,7 @@
 
 import { LogOut, UserRound } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { authClient } from "@/lib/auth-client";
+import { LogoutConfirmation } from "@/components/layout/logout-confirmation";
 
 function initials(name: string): string {
   return name
@@ -27,38 +27,39 @@ function initials(name: string): string {
 }
 
 export function UserMenu({ name, email }: { name: string; email: string }) {
-  const router = useRouter();
-
-  async function handleSignOut() {
-    await authClient.signOut();
-    router.push("/login");
-    router.refresh();
-  }
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="rounded-full">
-          <Avatar className="size-8">
-            <AvatarFallback>{initials(name)}</AvatarFallback>
-          </Avatar>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="flex flex-col">
-          <span className="font-medium">{name}</span>
-          <span className="text-muted-foreground text-xs font-normal">{email}</span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href="/admin/profile">
-            <UserRound /> Mi perfil
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={handleSignOut}>
-          <LogOut /> Cerrar sesión
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Avatar className="size-8">
+              <AvatarFallback>{initials(name)}</AvatarFallback>
+            </Avatar>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel className="flex flex-col">
+            <span className="font-medium">{name}</span>
+            <span className="text-muted-foreground text-xs font-normal">{email}</span>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/admin/profile">
+              <UserRound /> Mi perfil
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setConfirmingLogout(true)}>
+            <LogOut /> Cerrar sesión
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <LogoutConfirmation
+        open={confirmingLogout}
+        onOpenChange={setConfirmingLogout}
+        destination="/login"
+      />
+    </>
   );
 }

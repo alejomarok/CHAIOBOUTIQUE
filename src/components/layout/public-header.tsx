@@ -63,8 +63,10 @@ export async function PublicHeader() {
               />
             </form>
             <Logo />
-            <div className="flex items-center justify-end gap-3 [&_[data-slot=button]]:min-h-11 [&_[data-slot=button]]:border-0 [&_[data-slot=button]]:bg-transparent [&_[data-slot=button]]:text-[13px] [&_[data-slot=button]]:shadow-none">
-              <AuthActions />
+            <div className="flex items-center justify-end gap-3">
+              <div className="[&_[data-slot=button]]:min-h-11 [&_[data-slot=button]]:border-0 [&_[data-slot=button]]:bg-transparent [&_[data-slot=button]]:text-[13px] [&_[data-slot=button]]:shadow-none">
+                <AuthActions />
+              </div>
               <DashboardLink />
               <CartIconLink />
             </div>

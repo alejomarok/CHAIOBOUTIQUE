@@ -3,6 +3,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser, resolvePostLoginDestination } from "@/modules/auth";
 
+const dashboardButtonClass =
+  "min-h-11 border-[#34483d] bg-[#34483d] px-4 text-white hover:bg-[#26382d] hover:text-white focus-visible:ring-[#34483d]/40";
+
 // Server Component, deliberately async and rendered with no client-side
 // auth check of its own (no useEffect/useState) — the button is either
 // present or absent in the very first HTML the server sends, so there is no
@@ -24,7 +27,7 @@ export async function DashboardLink() {
 
   if (destination === "/admin") {
     return (
-      <Button asChild>
+      <Button asChild className={dashboardButtonClass}>
         <Link href="/admin">Ir al panel</Link>
       </Button>
     );
@@ -32,7 +35,7 @@ export async function DashboardLink() {
 
   if (destination === "/pos") {
     return (
-      <Button asChild>
+      <Button asChild className={dashboardButtonClass}>
         <Link href="/pos">Ir al POS</Link>
       </Button>
     );

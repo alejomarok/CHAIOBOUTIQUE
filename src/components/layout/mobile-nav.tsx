@@ -99,8 +99,8 @@ export function MobileNav({
             )}
           </nav>
 
-          <div className="mt-auto flex flex-col gap-3 pt-5" onClick={() => setOpen(false)}>
-            {dashboardSlot}
+          <div className="mt-auto flex flex-col gap-3 pt-5">
+            <div onClick={() => setOpen(false)}>{dashboardSlot}</div>
             {authSlot}
           </div>
         </div>
